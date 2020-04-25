@@ -4,6 +4,7 @@ import multiprocessing
 
 import jpeg4py
 from PIL import Image
+import numpy as np
 import skimage.io
 import tqdm
 
@@ -11,7 +12,13 @@ from utils import crop_white
 
 
 def to_jpeg(path: Path):
-    jpeg_path = path.parent / f'{path.stem}.jpeg'
+    image = skimage.io.MultiImage(str(path))
+    image_to_jpeg(path, '_1', image[1])
+    image_to_jpeg(path, '_2', image[2])
+
+
+def image_to_jpeg(path: Path, suffix: str, image: np.ndarray):
+    jpeg_path = path.parent / f'{path.stem}{suffix}.jpeg'
     if jpeg_path.exists():
         try:
             jpeg4py.JPEG(jpeg_path).decode()
@@ -19,7 +26,6 @@ def to_jpeg(path: Path):
             print(e)
         else:
             return
-    image = skimage.io.MultiImage(str(path))[1]
     image = crop_white(image)
     image = Image.fromarray(image)
     image.save(jpeg_path, quality=90)
