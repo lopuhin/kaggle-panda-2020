@@ -1,3 +1,4 @@
 /data
 /notebooks
 __pycache__
+*.egg-info

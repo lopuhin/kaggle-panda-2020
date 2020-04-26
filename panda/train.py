@@ -8,7 +8,7 @@ import torch
 from torch.utils.data import DataLoader
 import tqdm
 
-from dataset import PandaDataset
+from .dataset import PandaDataset
 
 
 def main():

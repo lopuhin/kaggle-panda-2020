@@ -8,7 +8,7 @@ import numpy as np
 import skimage.io
 import tqdm
 
-from utils import crop_white
+from .utils import crop_white
 
 
 def to_jpeg(path: Path):
