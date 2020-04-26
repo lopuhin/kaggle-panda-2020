@@ -136,13 +136,16 @@ def main():
         return
 
     epoch_pbar = tqdm.trange(args.epochs, dynamic_ncols=True)
+    best_kappa = 0
     for epoch in epoch_pbar:
         train_epoch()
         valid_metrics = validate()
         epoch_pbar.set_postfix(
             {k: f'{v:.4f}' for k, v in valid_metrics.items()})
         json_log_plots.write_event(run_root, step, **valid_metrics)
-        torch.save(model.state_dict(), model_path)
+        if valid_metrics['kappa'] > best_kappa:
+            best_kappa = valid_metrics['kappa']
+            torch.save(model.state_dict(), model_path)
 
 
 if __name__ == '__main__':
