@@ -6,6 +6,7 @@ import json_log_plots
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import KFold
+from sklearn.metrics import cohen_kappa_score
 import torch
 from torch import nn
 from torch.optim import Adam
@@ -31,15 +32,17 @@ def main():
     arg('--workers', type=int, default=4)
     arg('--model', type=str, default='resnet34')
     arg('--device', type=str, default='cuda')
+    arg('--validation', action='store_true')
 
     args = parser.parse_args()
     run_root = Path(args.run_root)
     run_root.mkdir(parents=True, exist_ok=True)
-    to_clean = ['json-log-plots.log']
-    for name in to_clean:
-        path = run_root / name
-        if path.exists():
-            path.unlink()
+    if not args.validation:
+        to_clean = ['json-log-plots.log']
+        for name in to_clean:
+            path = run_root / name
+            if path.exists():
+                path.unlink()
 
     df = pd.read_csv('data/train.csv')
     kfold = KFold(args.n_folds, shuffle=True, random_state=42)
@@ -106,12 +109,31 @@ def main():
     def validate():
         model.eval()
         losses = []
+        predictions = []
+        targets = []
+        image_ids = []
         for ids, xs, ys in valid_loader:
             output, loss = forward(xs, ys)
             losses.append(float(loss))
-        return {'valid_loss': np.mean(losses)}
+            output = output.cpu().numpy()
+            predictions.extend(
+                output.argmax(1).reshape((-1, args.n_patches)).max(1))
+            targets.extend(ys.cpu().numpy()[::args.n_patches])
+            image_ids.extend(ids[::args.n_patches])
+        kappa = cohen_kappa_score(targets, predictions, weights='quadratic')
+        return {
+            'valid_loss': np.mean(losses),
+            'kappa': kappa,
+        }
 
     model_path = run_root / 'model.pt'
+    if args.validation:
+        model.load_state_dict(torch.load(model_path))
+        valid_metrics = validate()
+        for k, v in sorted(valid_metrics.items()):
+            print(f'{k:<20} {v:.5f}')
+        return
+
     epoch_pbar = tqdm.trange(args.epochs, dynamic_ncols=True)
     for epoch in epoch_pbar:
         train_epoch()
