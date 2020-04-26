@@ -53,12 +53,13 @@ def main():
 
     root = Path('data/train_images')
 
-    def make_loader(df):
+    def make_loader(df, **kwargs):
         dataset = PandaDataset(
             root=root,
             df=df,
             patch_size=args.patch_size,
             n_patches=args.n_patches,
+            **kwargs,
         )
         return DataLoader(
             dataset,
@@ -69,7 +70,7 @@ def main():
         )
 
     train_loader = make_loader(df_train)
-    valid_loader = make_loader(df_valid)
+    valid_loader = make_loader(df_valid, pseudorandom=True)
 
     device = torch.device(args.device)
     model = getattr(models, args.model)()
@@ -131,7 +132,7 @@ def main():
         model.load_state_dict(torch.load(model_path))
         valid_metrics = validate()
         for k, v in sorted(valid_metrics.items()):
-            print(f'{k:<20} {v:.5f}')
+            print(f'{k:<20} {v:.4f}')
         return
 
     epoch_pbar = tqdm.trange(args.epochs, dynamic_ncols=True)

@@ -1,4 +1,3 @@
-import random
 from pathlib import Path
 
 import jpeg4py
@@ -14,11 +13,14 @@ class PandaDataset(Dataset):
             self, root: Path,
             df: pd.DataFrame,
             patch_size: int,
-            n_patches: int):
+            n_patches: int,
+            pseudorandom: bool = False,
+            ):
         self.df = df
         self.root = root
         self.patch_size = patch_size
         self.n_patches = n_patches
+        self.pseudorandom = pseudorandom
 
     def __len__(self):
         return len(self.df)
@@ -32,8 +34,9 @@ class PandaDataset(Dataset):
         patches = []
         ids = []
         ys = []
+        state = np.random.RandomState(seed=idx if self.pseudorandom else None)
         for _ in range(self.n_patches):
-            idx = random.randint(0, len(image_xs) - 1)
+            idx = state.randint(0, len(image_xs))
             patches.append(
                 to_torch(cut_patch(
                     image,
