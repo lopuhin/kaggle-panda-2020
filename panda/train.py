@@ -111,6 +111,7 @@ def main():
             losses.append(float(loss))
         return {'valid_loss': np.mean(losses)}
 
+    model_path = run_root / 'model.pt'
     epoch_pbar = tqdm.trange(args.epochs, dynamic_ncols=True)
     for epoch in epoch_pbar:
         train_epoch()
@@ -118,6 +119,7 @@ def main():
         epoch_pbar.set_postfix(
             {k: f'{v:.4f}' for k, v in valid_metrics.items()})
         json_log_plots.write_event(run_root, step, **valid_metrics)
+        torch.save(model.state_dict(), model_path)
 
 
 if __name__ == '__main__':
