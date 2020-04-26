@@ -3,9 +3,12 @@ from pathlib import Path
 import jpeg4py
 import pandas as pd
 import numpy as np
+import skimage.io
 import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
+
+from .utils import crop_white
 
 
 class PandaDataset(Dataset):
@@ -27,7 +30,12 @@ class PandaDataset(Dataset):
 
     def __getitem__(self, idx):
         item = self.df.iloc[idx]
-        image = jpeg4py.JPEG(self.root / f'{item.image_id}_2.jpeg').decode()
+        jpeg_path = self.root / f'{item.image_id}_2.jpeg'
+        if jpeg_path.exists():
+            image = jpeg4py.JPEG(jpeg_path).decode()
+        else:
+            image = crop_white(skimage.io.MultiImage(
+                str(self.root / f'{item.image_id}.tiff'))[2])
         image_xs, image_ys = (image.max(2) != 255).nonzero()
         if len(image_xs) == 0:
             image_xs, image_ys = [0], [0]
