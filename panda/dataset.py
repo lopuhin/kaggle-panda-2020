@@ -27,6 +27,8 @@ class PandaDataset(Dataset):
         item = self.df.iloc[idx]
         image = jpeg4py.JPEG(self.root / f'{item.image_id}_2.jpeg').decode()
         image_xs, image_ys = (image.max(2) != 255).nonzero()
+        if len(image_xs) == 0:
+            image_xs, image_ys = [0], [0]
         patches = []
         ids = []
         ys = []

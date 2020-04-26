@@ -2,6 +2,7 @@
 import argparse
 from pathlib import Path
 
+import json_log_plots
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import KFold
@@ -19,9 +20,10 @@ def main():
     parser = argparse.ArgumentParser()
     arg = parser.add_argument
 
+    arg('run_root')
     arg('--fold', type=int, default=0)
     arg('--n-folds', type=int, default=5)
-    arg('--lr', type=float, default=1e-4)
+    arg('--lr', type=float, default=1e-5)
     arg('--batch-size', type=int, default=32)
     arg('--n-patches', type=int, default=4)
     arg('--patch_size', type=int, default=256)
@@ -31,6 +33,13 @@ def main():
     arg('--device', type=str, default='cuda')
 
     args = parser.parse_args()
+    run_root = Path(args.run_root)
+    run_root.mkdir(parents=True, exist_ok=True)
+    to_clean = ['json-log-plots.log']
+    for name in to_clean:
+        path = run_root / name
+        if path.exists():
+            path.unlink()
 
     df = pd.read_csv('data/train.csv')
     kfold = KFold(args.n_folds, shuffle=True, random_state=42)
@@ -64,6 +73,7 @@ def main():
     model.to(device)
     optimizer = Adam(model.parameters(), lr=args.lr)
     criterion = nn.CrossEntropyLoss()
+    step = 0
 
     def forward(xs, ys):
         xs = xs.to(device)
@@ -73,28 +83,41 @@ def main():
         return output, loss
 
     def train_epoch():
+        nonlocal step
         model.train()
-        for ids, xs, ys in tqdm.tqdm(
-                train_loader, dynamic_ncols=True, desc='train'):
+        report_freq = 5
+        running_losses = []
+        pbar = tqdm.tqdm(train_loader, dynamic_ncols=True, desc='train')
+        for i, (ids, xs, ys) in enumerate(pbar):
+            step += len(ids)
             optimizer.zero_grad()
             _, loss = forward(xs, ys)
             loss.backward()
             optimizer.step()
-            print('train loss', float(loss))
+            running_losses.append(float(loss))
+            if i and i % report_freq == 0:
+                mean_loss = np.mean(running_losses)
+                running_losses.clear()
+                pbar.set_postfix({'loss': f'{mean_loss:.4f}'})
+                json_log_plots.write_event(run_root, step, loss=mean_loss)
+        pbar.close()
 
     @torch.no_grad()
     def validate():
         model.eval()
         losses = []
-        for ids, xs, ys in tqdm.tqdm(
-                valid_loader, dynamic_ncols=True, desc='valid'):
+        for ids, xs, ys in valid_loader:
             output, loss = forward(xs, ys)
             losses.append(float(loss))
-        print('valid loss', np.mean(losses))
+        return {'valid_loss': np.mean(losses)}
 
-    for epoch in tqdm.trange(args.epochs, dynamic_ncols=True):
+    epoch_pbar = tqdm.trange(args.epochs, dynamic_ncols=True)
+    for epoch in epoch_pbar:
         train_epoch()
-        validate()
+        valid_metrics = validate()
+        epoch_pbar.set_postfix(
+            {k: f'{v:.4f}' for k, v in valid_metrics.items()})
+        json_log_plots.write_event(run_root, step, **valid_metrics)
 
 
 if __name__ == '__main__':
