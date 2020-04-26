@@ -128,7 +128,7 @@ def main():
 
     model_path = run_root / 'model.pt'
     if args.validation:
-        model.load_state_dict(torch.load(model_path))
+        model.load_state_dict(torch.load(model_path, map_location='cpu'))
         valid_metrics = validate()
         for k, v in sorted(valid_metrics.items()):
             print(f'{k:<20} {v:.4f}')

@@ -45,9 +45,9 @@ def main():
     )
 
     device = torch.device(args.device)
-    model = getattr(models, args.model)()
+    model = getattr(models, args.model)(pretrained=False)
     model.to(device)
-    model.load_state_dict(torch.load(args.model_path))
+    model.load_state_dict(torch.load(args.model_path, map_location='cpu'))
     model.eval()
 
     predictions = []

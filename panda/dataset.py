@@ -1,6 +1,9 @@
 from pathlib import Path
 
-import jpeg4py
+try:
+    import jpeg4py
+except ImportError:
+    pass  # not needed on kaggle
 import pandas as pd
 import numpy as np
 import skimage.io
