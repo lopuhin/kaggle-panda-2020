@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import cv2
 try:
     import jpeg4py
 except ImportError:
@@ -20,12 +21,14 @@ class PandaDataset(Dataset):
             df: pd.DataFrame,
             patch_size: int,
             n_patches: int,
+            scale: float,
             pseudorandom: bool = False,
             ):
         self.df = df
         self.root = root
         self.patch_size = patch_size
         self.n_patches = n_patches
+        self.scale = scale
         self.pseudorandom = pseudorandom
 
     def __len__(self):
@@ -42,23 +45,28 @@ class PandaDataset(Dataset):
         image_xs, image_ys = (image.max(2) != 255).nonzero()
         if len(image_xs) == 0:
             image_xs, image_ys = [0], [0]
-        patches = []
         ids = []
+        xs = []
         ys = []
+        ps = self.patch_size
         state = np.random.RandomState(seed=idx if self.pseudorandom else None)
         for _ in range(self.n_patches):
             idx = state.randint(0, len(image_xs))
-            patches.append(
-                to_torch(cut_patch(
-                    image,
-                    xc=image_xs[idx],
-                    yc=image_ys[idx],
-                    patch_size=self.patch_size,
-                )))
+            x = cut_patch(
+                image,
+                xc=image_xs[idx],
+                yc=image_ys[idx],
+                patch_size=int(ps / self.scale),
+            )
+            if self.scale != 1:
+                x = cv2.resize(x, (ps, ps), interpolation=cv2.cv2.INTER_AREA)
+            x = to_torch(x)
+            assert x.shape == (3, ps, ps)
+            assert x.dtype == torch.float32
+            xs.append(x)
             ids.append(item.image_id)
             ys.append(item.isup_grade)
-        xs = torch.stack(patches)
-        return ids, xs, torch.tensor(ys)
+        return ids, torch.stack(xs), torch.tensor(ys)
 
     @staticmethod
     def collate_fn(batch):
@@ -68,11 +76,23 @@ class PandaDataset(Dataset):
         return ids, xs, ys
 
 
+MEAN = [0.485, 0.456, 0.406]
+STD = [0.229, 0.224, 0.225]
 to_torch = transforms.Compose([
     transforms.ToTensor(),
-    transforms.Normalize(
-        mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    transforms.Normalize(mean=MEAN, std=STD),
 ])
+
+
+def one_from_torch(x):
+    assert len(x.shape) == 3
+    assert x.shape[0] == 3
+    x = x.cpu()
+    x = torch.stack([x[i] * STD[i] + MEAN[i] for i in range(3)])
+    x = x.numpy()
+    x = np.rollaxis(x, 0, 3)
+    x = (np.clip(x, 0, 1) * 255).astype(np.uint8)
+    return x
 
 
 def cut_patch(

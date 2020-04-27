@@ -1,9 +1,11 @@
 import argparse
 from pathlib import Path
+import random
 
 import json_log_plots
 import numpy as np
 import pandas as pd
+from PIL import Image
 from sklearn.model_selection import KFold
 from sklearn.metrics import cohen_kappa_score
 import torch
@@ -12,7 +14,7 @@ from torch.optim import Adam
 from torch.utils.data import DataLoader
 import tqdm
 
-from .dataset import PandaDataset
+from .dataset import PandaDataset, one_from_torch
 from . import models
 
 
@@ -26,12 +28,14 @@ def main():
     arg('--lr', type=float, default=1e-5)
     arg('--batch-size', type=int, default=32)
     arg('--n-patches', type=int, default=4)
-    arg('--patch_size', type=int, default=256)
+    arg('--patch-size', type=int, default=256)
+    arg('--scale', type=float, default=1.0)
     arg('--epochs', type=int, default=100)
     arg('--workers', type=int, default=4)
-    arg('--model', type=str, default='resnet34')
-    arg('--device', type=str, default='cuda')
+    arg('--model', default='resnet34')
+    arg('--device', default='cuda')
     arg('--validation', action='store_true')
+    arg('--save-patches', action='store_true')
 
     args = parser.parse_args()
     run_root = Path(args.run_root)
@@ -58,6 +62,7 @@ def main():
             df=df,
             patch_size=args.patch_size,
             n_patches=args.n_patches,
+            scale=args.scale,
             **kwargs,
         )
         return DataLoader(
@@ -77,6 +82,10 @@ def main():
     optimizer = Adam(model.parameters(), lr=args.lr)
     criterion = nn.CrossEntropyLoss()
     step = 0
+
+    if args.save_patches:
+        for p in run_root.glob('patch-*.jpeg'):
+            p.unlink()
 
     def forward(xs, ys):
         xs = xs.to(device)
@@ -103,6 +112,10 @@ def main():
                 running_losses.clear()
                 pbar.set_postfix({'loss': f'{mean_loss:.4f}'})
                 json_log_plots.write_event(run_root, step, loss=mean_loss)
+            if args.save_patches:
+                for i in random.sample(range(len(xs)), 4):
+                    patch = Image.fromarray(one_from_torch(xs[i]))
+                    patch.save(run_root / f'patch-{i}.jpeg')
         pbar.close()
 
     @torch.no_grad()

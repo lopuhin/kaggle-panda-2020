@@ -3,6 +3,7 @@ jpeg4py==0.1.4
 json-log-plots==0.0.1
 matplotlib==3.2.1
 numpy==1.18.3
+opencv-python-headless==4.2.0.34
 pandas==1.0.3
 pillow==7.1.1
 scikit-image==0.16.2
