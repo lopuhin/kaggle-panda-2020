@@ -73,8 +73,8 @@ def main():
             collate_fn=PandaDataset.collate_fn,
         )
 
-    train_loader = make_loader(df_train)
-    valid_loader = make_loader(df_valid, pseudorandom=True)
+    train_loader = make_loader(df_train, training=True)
+    valid_loader = make_loader(df_valid, training=False)
 
     device = torch.device(args.device)
     model = getattr(models, args.model)()
@@ -113,7 +113,7 @@ def main():
                 pbar.set_postfix({'loss': f'{mean_loss:.4f}'})
                 json_log_plots.write_event(run_root, step, loss=mean_loss)
             if args.save_patches:
-                for i in random.sample(range(len(xs)), 4):
+                for i in random.sample(range(len(xs)), 1):
                     patch = Image.fromarray(one_from_torch(xs[i]))
                     patch.save(run_root / f'patch-{i}.jpeg')
         pbar.close()

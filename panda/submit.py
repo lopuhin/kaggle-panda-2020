@@ -34,7 +34,7 @@ def main():
         df=df,
         patch_size=args.patch_size,
         n_patches=args.n_patches,
-        pseudorandom=True,
+        training=False,
     )
     loader = DataLoader(
         dataset,

@@ -1,3 +1,4 @@
+import random
 from pathlib import Path
 
 import cv2
@@ -22,14 +23,14 @@ class PandaDataset(Dataset):
             patch_size: int,
             n_patches: int,
             scale: float,
-            pseudorandom: bool = False,
+            training: bool,
             ):
         self.df = df
         self.root = root
         self.patch_size = patch_size
         self.n_patches = n_patches
         self.scale = scale
-        self.pseudorandom = pseudorandom
+        self.training = training
 
     def __len__(self):
         return len(self.df)
@@ -49,7 +50,7 @@ class PandaDataset(Dataset):
         xs = []
         ys = []
         ps = self.patch_size
-        state = np.random.RandomState(seed=idx if self.pseudorandom else None)
+        state = np.random.RandomState(seed=None if self.training else idx)
         for _ in range(self.n_patches):
             idx = state.randint(0, len(image_xs))
             x = cut_patch(
@@ -60,6 +61,8 @@ class PandaDataset(Dataset):
             )
             if self.scale != 1:
                 x = cv2.resize(x, (ps, ps), interpolation=cv2.cv2.INTER_AREA)
+            if self.training:
+                x = self.augment_patch(x)
             x = to_torch(x)
             assert x.shape == (3, ps, ps)
             assert x.dtype == torch.float32
@@ -67,6 +70,15 @@ class PandaDataset(Dataset):
             ids.append(item.image_id)
             ys.append(item.isup_grade)
         return ids, torch.stack(xs), torch.tensor(ys)
+
+    def augment_patch(self, x):
+        # TODO do that properly
+        k = random.randint(0, 3)
+        if k != 0:
+            x = np.rot90(x, k=k)
+        if random.random() < 0.5:
+            x = np.fliplr(x)
+        return x.copy()
 
     @staticmethod
     def collate_fn(batch):
