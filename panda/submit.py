@@ -17,7 +17,8 @@ def main():
     arg('--model', type=str, default='resnet34')
     arg('--batch-size', type=int, default=32)
     arg('--n-patches', type=int, default=4)
-    arg('--patch_size', type=int, default=256)
+    arg('--patch-size', type=int, default=256)
+    arg('--scale', type=float, default=1.0)
     arg('--workers', type=int, default=4)
     arg('--device', type=str, default='cuda')
     args = parser.parse_args()
@@ -34,6 +35,7 @@ def main():
         df=df,
         patch_size=args.patch_size,
         n_patches=args.n_patches,
+        scale=args.scale,
         training=False,
     )
     loader = DataLoader(
