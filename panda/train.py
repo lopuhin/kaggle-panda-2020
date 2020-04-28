@@ -102,6 +102,7 @@ def main():
         pbar = tqdm.tqdm(train_loader, dynamic_ncols=True, desc='train')
         for i, (ids, xs, ys) in enumerate(pbar):
             step += len(ids)
+            save_patches(xs)
             optimizer.zero_grad()
             _, loss = forward(xs, ys)
             loss.backward()
@@ -112,11 +113,13 @@ def main():
                 running_losses.clear()
                 pbar.set_postfix({'loss': f'{mean_loss:.4f}'})
                 json_log_plots.write_event(run_root, step, loss=mean_loss)
-            if args.save_patches:
-                for i in random.sample(range(len(xs)), 1):
-                    patch = Image.fromarray(one_from_torch(xs[i]))
-                    patch.save(run_root / f'patch-{i}.jpeg')
         pbar.close()
+
+    def save_patches(xs):
+        if args.save_patches:
+            for i in random.sample(range(len(xs)), 1):
+                patch = Image.fromarray(one_from_torch(xs[i]))
+                patch.save(run_root / f'patch-{i}.jpeg')
 
     @torch.no_grad()
     def validate():
