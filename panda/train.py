@@ -1,4 +1,5 @@
 import argparse
+import json
 from pathlib import Path
 import random
 
@@ -46,6 +47,8 @@ def main():
             path = run_root / name
             if path.exists():
                 path.unlink()
+        (run_root / 'params.json').write_text(
+            json.dumps(vars(args), indent=4, sort_keys=True))
 
     df = pd.read_csv('data/train.csv')
     kfold = KFold(args.n_folds, shuffle=True, random_state=42)
