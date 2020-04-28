@@ -46,9 +46,7 @@ class PandaDataset(Dataset):
         image_xs, image_ys = (image.max(2) != 255).nonzero()
         if len(image_xs) == 0:
             image_xs, image_ys = [0], [0]
-        ids = []
         xs = []
-        ys = []
         ps = self.patch_size
         state = np.random.RandomState(seed=None if self.training else idx)
         for _ in range(self.n_patches):
@@ -67,9 +65,7 @@ class PandaDataset(Dataset):
             assert x.shape == (3, ps, ps)
             assert x.dtype == torch.float32
             xs.append(x)
-            ids.append(item.image_id)
-            ys.append(item.isup_grade)
-        return ids, torch.stack(xs), torch.tensor(ys)
+        return item.image_id, torch.stack(xs), item.isup_grade
 
     def augment_patch(self, x):
         # TODO do that properly
@@ -79,13 +75,6 @@ class PandaDataset(Dataset):
         if random.random() < 0.5:
             x = np.fliplr(x)
         return x.copy()
-
-    @staticmethod
-    def collate_fn(batch):
-        ids = sum([ids for ids, _, _ in batch], [])
-        xs = torch.cat([xs for _ , xs, _ in batch])
-        ys = torch.cat([ys for _ , _, ys in batch])
-        return ids, xs, ys
 
 
 MEAN = [0.485, 0.456, 0.406]

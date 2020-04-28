@@ -70,7 +70,6 @@ def main():
             batch_size=args.batch_size,
             shuffle=True,
             num_workers=args.workers,
-            collate_fn=PandaDataset.collate_fn,
         )
 
     train_loader = make_loader(df_train, training=True)
@@ -118,7 +117,8 @@ def main():
     def save_patches(xs):
         if args.save_patches:
             for i in random.sample(range(len(xs)), 1):
-                patch = Image.fromarray(one_from_torch(xs[i]))
+                j = random.randint(0, args.n_patches - 1)
+                patch = Image.fromarray(one_from_torch(xs[i, j]))
                 patch.save(run_root / f'patch-{i}.jpeg')
 
     @torch.no_grad()
@@ -131,11 +131,9 @@ def main():
         for ids, xs, ys in valid_loader:
             output, loss = forward(xs, ys)
             losses.append(float(loss))
-            output = output.cpu().numpy()
-            predictions.extend(
-                output.argmax(1).reshape((-1, args.n_patches)).max(1))
-            targets.extend(ys.cpu().numpy()[::args.n_patches])
-            image_ids.extend(ids[::args.n_patches])
+            predictions.extend(output.cpu().numpy().argmax(1))
+            targets.extend(ys.cpu().numpy())
+            image_ids.extend(ids)
         kappa = cohen_kappa_score(targets, predictions, weights='quadratic')
         return {
             'valid_loss': np.mean(losses),
