@@ -1,4 +1,5 @@
 import argparse
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -14,13 +15,9 @@ def main():
     arg = parser.add_argument
     arg('model_path')
     arg('data_root')
-    arg('--model', type=str, default='resnet34')
-    arg('--batch-size', type=int, default=32)
-    arg('--n-patches', type=int, default=4)
-    arg('--patch-size', type=int, default=256)
-    arg('--scale', type=float, default=1.0)
     arg('--workers', type=int, default=4)
     arg('--device', type=str, default='cuda')
+    arg('--batch-size', type=int)
     args = parser.parse_args()
 
     root = Path(args.data_root)
@@ -30,26 +27,31 @@ def main():
         df.to_csv('submission.csv', index=False)
         return
 
+    model_path = Path(args.model_path)
+    params = json.loads((model_path / 'params.json').read_text())
+    if args.batch_size:
+        params['batch_size'] = args.batch_size
+
     dataset = PandaDataset(
         root=image_root,
         df=df,
-        patch_size=args.patch_size,
-        n_patches=args.n_patches,
-        scale=args.scale,
+        patch_size=params['patch_size'],
+        n_patches=params['n_patches'],
+        scale=params['scale'],
         training=False,
     )
     loader = DataLoader(
         dataset,
-        batch_size=args.batch_size,
+        batch_size=params['batch_size'],
         shuffle=False,
         num_workers=args.workers,
-        collate_fn=PandaDataset.collate_fn,
     )
 
     device = torch.device(args.device)
-    model = getattr(models, args.model)(pretrained=False)
+    model = getattr(models, params['model'])(pretrained=False)
     model.to(device)
-    model.load_state_dict(torch.load(args.model_path, map_location='cpu'))
+    model.load_state_dict(
+        torch.load(model_path / 'model.pt', map_location='cpu'))
     model.eval()
 
     predictions = []
@@ -59,9 +61,8 @@ def main():
             xs = xs.to(device)
             ys = ys.to(device)
             output = model(xs).cpu().numpy()
-            predictions.extend(
-                output.argmax(1).reshape((-1, args.n_patches)).max(1))
-            image_ids.extend(ids[::args.n_patches])
+            predictions.extend(output.argmax(1))
+            image_ids.extend(ids)
 
     by_image_id = dict(zip(image_ids, predictions))
     df['isup_grade'] = df['image_id'].apply(lambda x: by_image_id[x])
