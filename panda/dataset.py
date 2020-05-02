@@ -50,7 +50,7 @@ class PandaDataset(Dataset):
                 interpolation=cv2.INTER_AREA)
         if self.training:
             image = random_flip(image)
-            image = random_rotate(image)
+            # image = random_rotate(image)
             image = random_pad(image, self.patch_size)
         patches = make_patches(image, n=self.n_patches, size=self.patch_size)
         xs = torch.stack([to_torch(x) for x in patches])
@@ -85,7 +85,9 @@ def random_flip(image: np.ndarray) -> np.ndarray:
 
 
 def random_rotate(image: np.ndarray) -> np.ndarray:
-    return rotate_image(image, angle=random.randint(0, 359))
+    if random.random() < 0.5:
+        return rotate_image(image, angle=random.uniform(-10, 10))
+    return image
 
 
 def random_pad(image: np.ndarray, size: int) -> np.ndarray:
