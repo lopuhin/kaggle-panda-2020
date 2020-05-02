@@ -13,7 +13,7 @@ import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
 
-from .utils import crop_white
+from .utils import crop_white, rotate_image
 
 
 class PandaDataset(Dataset):
@@ -43,38 +43,19 @@ class PandaDataset(Dataset):
         else:
             image = crop_white(skimage.io.MultiImage(
                 str(self.root / f'{item.image_id}.tiff'))[2])
-        image_xs, image_ys = (image.max(2) != 255).nonzero()
-        if len(image_xs) == 0:
-            image_xs, image_ys = [0], [0]
-        xs = []
-        ps = self.patch_size
-        state = np.random.RandomState(seed=None if self.training else idx)
-        for _ in range(self.n_patches):
-            idx = state.randint(0, len(image_xs))
-            x = cut_patch(
-                image,
-                xc=image_xs[idx],
-                yc=image_ys[idx],
-                patch_size=int(ps / self.scale),
-            )
-            if self.scale != 1:
-                x = cv2.resize(x, (ps, ps), interpolation=cv2.cv2.INTER_AREA)
-            if self.training:
-                x = self.augment_patch(x)
-            x = to_torch(x)
-            assert x.shape == (3, ps, ps)
-            assert x.dtype == torch.float32
-            xs.append(x)
-        return item.image_id, torch.stack(xs), item.isup_grade
-
-    def augment_patch(self, x):
-        # TODO do that properly
-        k = random.randint(0, 3)
-        if k != 0:
-            x = np.rot90(x, k=k)
-        if random.random() < 0.5:
-            x = np.fliplr(x)
-        return x.copy()
+        if self.scale != 1:
+            image = cv2.resize(
+                image, (image.shape[1] // 2, image.shape[0] // 2),
+                interpolation=cv2.INTER_AREA)
+        if self.training:
+            image = random_flip(image)
+            image = random_rotate(image)
+            image = random_pad(image, self.patch_size)
+        patches = make_patches(image, n=self.n_patches, size=self.patch_size)
+        xs = torch.stack([to_torch(x) for x in patches])
+        assert xs.shape == (self.n_patches, 3, self.patch_size, self.patch_size)
+        assert xs.dtype == torch.float32
+        return item.image_id, xs, item.isup_grade
 
 
 MEAN = [0.485, 0.456, 0.406]
@@ -96,23 +77,45 @@ def one_from_torch(x):
     return x
 
 
-def cut_patch(
-        image: np.ndarray, xc: int, yc: int, patch_size: int) -> np.ndarray:
-    h, w, _ = image.shape
-    s2 = patch_size // 2
-    if xc + s2 >= w:
-        xc = w - s2
-    if yc + s2 >= h:
-        yc = h - s2
-    x0 = max(0, xc - s2)
-    y0 = max(0, yc - s2)
-    patch = image[y0: y0 + patch_size, x0: x0 + patch_size]
-    expected_shape = (patch_size, patch_size, 3)
-    if patch.shape != expected_shape:
-        ph, pw, _ = patch.shape
-        patch = np.pad(
-            patch,
-            pad_width=((0, patch_size - ph), (0, patch_size - pw), (0, 0)),
-            constant_values=255,
-        )
-    return patch
+def random_flip(image: np.ndarray) -> np.ndarray:
+    if random.random() < 0.5:
+        image = np.fliplr(image)
+    return image
+
+
+def random_rotate(image: np.ndarray) -> np.ndarray:
+    return rotate_image(image, angle=random.randint(0, 359))
+
+
+def random_pad(image: np.ndarray, size: int) -> np.ndarray:
+    pad0 = random.randint(0, size)
+    pad1 = random.randint(0, size)
+    return np.pad(
+        image,
+        [[pad0, size - pad0], [pad1, size - pad1], [0, 0]],
+        constant_values=255)
+
+
+def make_patches(image, n: int, size: int) -> np.ndarray:
+    """ Based on https://www.kaggle.com/iafoss/panda-16x128x128-tiles
+    """
+    pad0 = (size - image.shape[0] % size) % size
+    pad1 = (size - image.shape[1] % size) % size
+    pad0_0 = pad0 // 2
+    pad1_0 = pad1 // 2
+    image = np.pad(
+        image,
+        [[pad0_0, pad0 - pad0_0],
+         [pad1_0, pad1 - pad1_0],
+         [0, 0]],
+        constant_values=255)
+    image = image.reshape(
+        image.shape[0] // size, size, image.shape[1] // size, size, 3)
+    image = image.transpose(0, 2, 1, 3, 4).reshape(-1, size, size, 3)
+    if len(image) < n:
+        image = np.pad(
+            image,
+            [[0, n - len(image)], [0, 0], [0, 0], [0, 0]],
+            constant_values=255)
+    idxs = np.argsort(image.reshape(image.shape[0], -1).sum(-1))[:n]
+    return image[idxs]
