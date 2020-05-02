@@ -45,7 +45,8 @@ class PandaDataset(Dataset):
                 str(self.root / f'{item.image_id}.tiff'))[2])
         if self.scale != 1:
             image = cv2.resize(
-                image, (image.shape[1] // 2, image.shape[0] // 2),
+                image, (int(image.shape[1] * self.scale),
+                        int(image.shape[0] * self.scale)),
                 interpolation=cv2.INTER_AREA)
         if self.training:
             image = random_flip(image)
