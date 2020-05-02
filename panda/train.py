@@ -38,8 +38,8 @@ def main():
     arg('--device', default='cuda')
     arg('--validation', action='store_true')
     arg('--save-patches', action='store_true')
-    arg('--lr-scheduler')
-    arg('--amp', type=int, default=0)
+    arg('--lr-scheduler', default='cosine')
+    arg('--amp', type=int, default=1)
 
     args = parser.parse_args()
     run_root = Path(args.run_root)
