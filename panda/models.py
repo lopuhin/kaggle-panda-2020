@@ -11,10 +11,11 @@ class ResNet(nn.Module):
         super().__init__()
         self.base = getattr(torchvision.models, name)(pretrained=pretrained)
         self.base.fc = nn.Linear(
-            in_features=self.base.fc.in_features,
+            in_features=2 * self.base.fc.in_features,
             out_features=n_outputs,
             bias=True)
         self.avgpool = nn.AdaptiveAvgPool1d(output_size=1)
+        self.maxpool = nn.AdaptiveMaxPool1d(output_size=1)
     
     def forward(self, x):
         batch_size, n_patches, *patch_shape = x.shape
@@ -23,8 +24,7 @@ class ResNet(nn.Module):
         n_features = x.shape[1]
         x = x.reshape((batch_size, n_patches, n_features, -1))
         x = x.transpose(1, 2).reshape((batch_size, n_features, -1))
-
-        x = self.avgpool(x)
+        x = torch.cat([self.avgpool(x), self.maxpool(x)], dim=1)
         x = torch.flatten(x, 1)
         x = self.base.fc(x)
         return x
