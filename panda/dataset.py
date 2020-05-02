@@ -23,6 +23,7 @@ class PandaDataset(Dataset):
             patch_size: int,
             n_patches: int,
             scale: float,
+            level: int,
             training: bool,
             ):
         self.df = df
@@ -30,6 +31,7 @@ class PandaDataset(Dataset):
         self.patch_size = patch_size
         self.n_patches = n_patches
         self.scale = scale
+        self.level = level
         self.training = training
 
     def __len__(self):
@@ -37,12 +39,12 @@ class PandaDataset(Dataset):
 
     def __getitem__(self, idx):
         item = self.df.iloc[idx]
-        jpeg_path = self.root / f'{item.image_id}_2.jpeg'
+        jpeg_path = self.root / f'{item.image_id}_{self.level}.jpeg'
         if jpeg_path.exists():
             image = jpeg4py.JPEG(jpeg_path).decode()
         else:
             image = crop_white(skimage.io.MultiImage(
-                str(self.root / f'{item.image_id}.tiff'))[2])
+                str(self.root / f'{item.image_id}.tiff'))[self.level])
         if self.scale != 1:
             image = cv2.resize(
                 image, (int(image.shape[1] * self.scale),

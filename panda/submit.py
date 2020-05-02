@@ -39,6 +39,7 @@ def main():
         patch_size=params['patch_size'],
         n_patches=params['n_patches'],
         scale=params['scale'],
+        level=params['level'],
         training=False,
     )
     loader = DataLoader(

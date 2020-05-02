@@ -31,6 +31,7 @@ def main():
     arg('--n-patches', type=int, default=12)
     arg('--patch-size', type=int, default=128)
     arg('--scale', type=float, default=1.0)
+    arg('--level', type=int, default=2)
     arg('--epochs', type=int, default=10)
     arg('--workers', type=int, default=4)
     arg('--model', default='resnet34')
@@ -69,6 +70,7 @@ def main():
             patch_size=args.patch_size,
             n_patches=args.n_patches,
             scale=args.scale,
+            level=args.level,
             **kwargs,
         )
         return DataLoader(
