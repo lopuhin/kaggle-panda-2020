@@ -28,6 +28,7 @@ def main():
     arg('--n-folds', type=int, default=5)
     arg('--lr', type=float, default=3e-5)
     arg('--batch-size', type=int, default=32)
+    arg('--grad-acc', type=int, default=1)
     arg('--n-patches', type=int, default=12)
     arg('--patch-size', type=int, default=128)
     arg('--scale', type=float, default=1.0)
@@ -116,15 +117,17 @@ def main():
         report_freq = 5
         running_losses = []
         pbar = tqdm.tqdm(train_loader, dynamic_ncols=True, desc='train')
+        optimizer.zero_grad()
         for i, (ids, xs, ys) in enumerate(pbar):
             step += len(ids)
             save_patches(xs)
-            optimizer.zero_grad()
             with amp.autocast(enabled=amp_enabled):
                 _, loss = forward(xs, ys)
             scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
+            if (i + 1) % args.grad_acc == 0:
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad()
             running_losses.append(float(loss))
             if i and i % report_freq == 0:
                 mean_loss = np.mean(running_losses)
