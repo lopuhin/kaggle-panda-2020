@@ -11,7 +11,6 @@ from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import cohen_kappa_score
 import torch
 from torch import nn
-from torch.optim import Adam
 from torch.utils.data import DataLoader
 import tqdm
 
@@ -31,12 +30,13 @@ def main():
     arg('--n-patches', type=int, default=12)
     arg('--patch-size', type=int, default=128)
     arg('--scale', type=float, default=1.0)
-    arg('--epochs', type=int, default=100)
+    arg('--epochs', type=int, default=10)
     arg('--workers', type=int, default=4)
     arg('--model', default='resnet34')
     arg('--device', default='cuda')
     arg('--validation', action='store_true')
     arg('--save-patches', action='store_true')
+    arg('--lr-scheduler')
 
     args = parser.parse_args()
     run_root = Path(args.run_root)
@@ -81,9 +81,16 @@ def main():
     device = torch.device(args.device)
     model = getattr(models, args.model)()
     model.to(device)
-    optimizer = Adam(model.parameters(), lr=args.lr)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     criterion = nn.CrossEntropyLoss()
     step = 0
+
+    lr_scheduler = None
+    if args.lr_scheduler == 'cosine':
+        lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=args.epochs, eta_min=args.lr / 100)
+    elif args.lr_scheduler:
+        parser.error(f'unexpected schedule {args.schedule}')
 
     if args.save_patches:
         for p in run_root.glob('patch-*.jpeg'):
@@ -116,6 +123,8 @@ def main():
                 pbar.set_postfix({'loss': f'{mean_loss:.4f}'})
                 json_log_plots.write_event(run_root, step, loss=mean_loss)
         pbar.close()
+        if lr_scheduler is not None:
+            lr_scheduler.step()
 
     def save_patches(xs):
         if args.save_patches:
