@@ -7,7 +7,7 @@ import json_log_plots
 import numpy as np
 import pandas as pd
 from PIL import Image
-from sklearn.model_selection import KFold
+from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import cohen_kappa_score
 import torch
 from torch import nn
@@ -51,8 +51,8 @@ def main():
             json.dumps(vars(args), indent=4, sort_keys=True))
 
     df = pd.read_csv('data/train.csv')
-    kfold = KFold(args.n_folds, shuffle=True, random_state=42)
-    for i, (train_ids, valid_ids) in enumerate(kfold.split(df)):
+    kfold = StratifiedKFold(args.n_folds, shuffle=True, random_state=42)
+    for i, (train_ids, valid_ids) in enumerate(kfold.split(df, df.isup_grade)):
         if i == args.fold:
             df_train = df.iloc[train_ids]
             df_valid = df.iloc[valid_ids]
