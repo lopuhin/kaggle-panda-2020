@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader
+from torch.cuda import amp
 
 from .dataset import PandaDataset
 from . import models
@@ -48,7 +49,8 @@ def main():
     )
 
     device = torch.device(args.device)
-    model = getattr(models, params['model'])(pretrained=False)
+    model = getattr(models, params['model'])(
+        head_name=params['head'], pretrained=False)
     model.to(device)
     model.load_state_dict(
         torch.load(model_path / 'model.pt', map_location='cpu'))
@@ -60,7 +62,8 @@ def main():
         for ids, xs, ys in loader:
             xs = xs.to(device)
             ys = ys.to(device)
-            output = model(xs).cpu().numpy()
+            with amp.autocast(enabled=bool(params['amp'])):
+                output = model(xs).cpu().numpy()
             predictions.extend(output.argmax(1))
             image_ids.extend(ids)
 

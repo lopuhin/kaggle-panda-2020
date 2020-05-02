@@ -34,6 +34,7 @@ def main():
     arg('--epochs', type=int, default=10)
     arg('--workers', type=int, default=4)
     arg('--model', default='resnet34')
+    arg('--head', default='HeadFC')
     arg('--device', default='cuda')
     arg('--validation', action='store_true')
     arg('--save-patches', action='store_true')
@@ -81,7 +82,7 @@ def main():
     valid_loader = make_loader(df_valid, training=False)
 
     device = torch.device(args.device)
-    model = getattr(models, args.model)()
+    model = getattr(models, args.model)(head_name=args.head)
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     criterion = nn.CrossEntropyLoss()
