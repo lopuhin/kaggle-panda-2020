@@ -35,7 +35,7 @@ def main():
     arg('--epochs', type=int, default=10)
     arg('--workers', type=int, default=4)
     arg('--model', default='resnet34')
-    arg('--head', default='HeadFC')
+    arg('--head', default='HeadFC2')
     arg('--device', default='cuda')
     arg('--validation', action='store_true')
     arg('--save-patches', action='store_true')
