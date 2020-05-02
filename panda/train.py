@@ -28,7 +28,7 @@ def main():
     arg('--n-folds', type=int, default=5)
     arg('--lr', type=float, default=3e-5)
     arg('--batch-size', type=int, default=32)
-    arg('--n-patches', type=int, default=16)
+    arg('--n-patches', type=int, default=12)
     arg('--patch-size', type=int, default=128)
     arg('--scale', type=float, default=1.0)
     arg('--epochs', type=int, default=100)
