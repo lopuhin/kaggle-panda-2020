@@ -153,7 +153,8 @@ def main():
         targets = []
         image_ids = []
         for ids, xs, ys in valid_loader:
-            output, loss = forward(xs, ys)
+            with amp.autocast(enabled=amp_enabled):
+                output, loss = forward(xs, ys)
             losses.append(float(loss))
             predictions.extend(output.cpu().numpy().argmax(1))
             targets.extend(ys.cpu().numpy())
