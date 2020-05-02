@@ -12,6 +12,7 @@ from sklearn.metrics import cohen_kappa_score
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
+from torch.cuda import amp
 import tqdm
 
 from .dataset import PandaDataset, one_from_torch
@@ -37,6 +38,7 @@ def main():
     arg('--validation', action='store_true')
     arg('--save-patches', action='store_true')
     arg('--lr-scheduler')
+    arg('--amp', type=int, default=0)
 
     args = parser.parse_args()
     run_root = Path(args.run_root)
@@ -83,6 +85,8 @@ def main():
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     criterion = nn.CrossEntropyLoss()
+    amp_enabled = bool(args.amp)
+    scaler = amp.GradScaler(enabled=amp_enabled)
     step = 0
 
     lr_scheduler = None
@@ -113,9 +117,11 @@ def main():
             step += len(ids)
             save_patches(xs)
             optimizer.zero_grad()
-            _, loss = forward(xs, ys)
-            loss.backward()
-            optimizer.step()
+            with amp.autocast(enabled=amp_enabled):
+                _, loss = forward(xs, ys)
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
             running_losses.append(float(loss))
             if i and i % report_freq == 0:
                 mean_loss = np.mean(running_losses)
