@@ -1,3 +1,5 @@
+from functools import partial
+
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -81,11 +83,15 @@ class HeadFC2(nn.Module):
         return x
 
 
-def resnet34(head_name: str, pretrained: bool = True):
+def resnet(name: str, head_name: str, pretrained: bool = True):
     head_cls = globals()[head_name]
     return ResNet(
-        name='resnet34',
+        name=name,
         head_cls=head_cls,
         n_outputs=N_CLASSES,
         pretrained=pretrained,
     )
+
+
+resnet34 = partial(resnet, name='resnet34')
+resnet18 = partial(resnet, name='resnet18')
