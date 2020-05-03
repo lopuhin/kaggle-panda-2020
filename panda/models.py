@@ -3,6 +3,7 @@ from functools import partial
 import torch
 from torch import nn
 from torch.nn import functional as F
+from torch.nn.modules.batchnorm import _BatchNorm
 import torchvision.models
 
 
@@ -45,6 +46,11 @@ class ResNet(nn.Module):
         x = base.layer4(x)
         return x
 
+    def train(self, mode=True):
+        for m in self.modules():
+            if isinstance(m, _BatchNorm):
+                m.eval()
+
 
 class HeadFC(nn.Module):
     def __init__(self, in_features: int, out_features: int):
@@ -67,7 +73,7 @@ class HeadFC2(nn.Module):
             in_features=in_features,
             out_features=hidden_size,
             bias=True)
-        self.bn = nn.BatchNorm1d(hidden_size)
+        self.gn = nn.GroupNorm(32, hidden_size)
         self.dropout = nn.Dropout(p=0.5)
         self.fc_2 = nn.Linear(
             in_features=hidden_size,
@@ -75,12 +81,24 @@ class HeadFC2(nn.Module):
             bias=True)
 
     def forward(self, x):
+        # x = linear_ws(self.fc, x)
         x = self.fc(x)
-        x = self.bn(x)
+        x = self.gn(x)
         x = F.relu(x, inplace=True)
         x = self.dropout(x)
         x = self.fc_2(x)
         return x
+
+
+def linear_ws(layer, x):
+    """ Adapted from https://github.com/joe-siyuan-qiao/WeightStandardization/
+    """
+    weight = layer.weight
+    weight_mean = weight.mean(dim=1, keepdim=True)
+    weight = weight - weight_mean
+    std = weight.view(weight.size(0), -1).std(dim=1).view(-1, 1) + 1e-5
+    weight = weight / std.expand_as(weight)
+    return F.linear(x, weight, layer.bias)
 
 
 def resnet(name: str, head_name: str, pretrained: bool = True):
