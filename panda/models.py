@@ -3,7 +3,6 @@ from functools import partial
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torch.nn.modules.batchnorm import _BatchNorm
 import torchvision.models
 
 
@@ -46,10 +45,6 @@ class ResNet(nn.Module):
         x = base.layer4(x)
         return x
 
-    def train(self, mode=True):
-        for m in self.modules():
-            if isinstance(m, _BatchNorm):
-                m.eval()
 
 
 class HeadFC(nn.Module):
