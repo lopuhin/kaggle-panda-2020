@@ -163,9 +163,11 @@ def gnws_resnet(name: str, head_name: str, pretrained: bool = True):
     """
     base = getattr(gnws_resnets, name)()
     if pretrained:
-        base.load_state_dict(torch.load(Path('data') / {
+        weights_name = {
             'resnet50': 'R-50-GN-WS.pth.tar',
-        }[name], map_location='cpu'))
+        }[name]
+        state = torch.load(Path('data') / weights_name, map_location='cpu')
+        base.load_state_dict({k.split('.', 1)[1]: v for k, v in state.items()})
     head_cls = globals()[head_name]
     return ResNet(
         base=base,
