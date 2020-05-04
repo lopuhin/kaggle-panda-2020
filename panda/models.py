@@ -1,3 +1,4 @@
+from pathlib import Path
 from functools import partial
 
 import torch
@@ -5,14 +6,16 @@ from torch import nn
 from torch.nn import functional as F
 import torchvision.models
 
+from . import gnws_resnet as gnws_resnets
+
 
 N_CLASSES = 6
 
 
 class ResNet(nn.Module):
-    def __init__(self, n_outputs: int, name: str, head_cls, pretrained: bool):
+    def __init__(self, n_outputs: int, base: nn.Module, head_cls):
         super().__init__()
-        self.base = getattr(torchvision.models, name)(pretrained=pretrained)
+        self.base = base
         # replace_bns_gns(self.base)
         # replace_conv2d_ws(self.base)
         self.head = head_cls(
@@ -140,14 +143,35 @@ def linear_ws(layer, x):
 
 
 def resnet(name: str, head_name: str, pretrained: bool = True):
+    base = getattr(torchvision.models, name)(pretrained=pretrained)
     head_cls = globals()[head_name]
     return ResNet(
-        name=name,
+        base=base,
         head_cls=head_cls,
         n_outputs=N_CLASSES,
-        pretrained=pretrained,
     )
 
 
-resnet34 = partial(resnet, name='resnet34')
 resnet18 = partial(resnet, name='resnet18')
+resnet34 = partial(resnet, name='resnet34')
+resnet50 = partial(resnet, name='resnet50')
+
+
+def gnws_resnet(name: str, head_name: str, pretrained: bool = True):
+    """
+    https://github.com/joe-siyuan-qiao/pytorch-classification
+    """
+    base = getattr(gnws_resnets, name)()
+    if pretrained:
+        base.load_state_dict(torch.load(Path('data') / {
+            'resnet50': 'R-50-GN-WS.pth.tar',
+        }[name], map_location='cpu'))
+    head_cls = globals()[head_name]
+    return ResNet(
+        base=base,
+        head_cls=head_cls,
+        n_outputs=N_CLASSES,
+    )
+
+
+gnws_resnet50 = partial(gnws_resnet, name='resnet50')
