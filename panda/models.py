@@ -54,7 +54,7 @@ class ResNet(nn.Module):
 def replace_bns_gns(module):
     for name, child in module.named_children():
         if isinstance(child, nn.BatchNorm2d):
-            gn = nn.GroupNorm(32, child.num_features)
+            gn = nn.GroupNorm(1, child.num_features)
             gn.weight = child.weight
             gn.bias = child.bias
             setattr(module, name, gn)
