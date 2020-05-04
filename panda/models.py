@@ -16,8 +16,6 @@ class ResNet(nn.Module):
     def __init__(self, n_outputs: int, base: nn.Module, head_cls):
         super().__init__()
         self.base = base
-        # replace_bns_gns(self.base)
-        # replace_conv2d_ws(self.base)
         self.head = head_cls(
             in_features=2 * self.base.fc.in_features,
             out_features=n_outputs,
@@ -49,48 +47,6 @@ class ResNet(nn.Module):
         x = base.layer3(x)
         x = base.layer4(x)
         return x
-
-
-def replace_bns_gns(module):
-    for name, child in module.named_children():
-        if isinstance(child, nn.BatchNorm2d):
-            gn = nn.GroupNorm(1, child.num_features)
-            gn.weight = child.weight
-            gn.bias = child.bias
-            setattr(module, name, gn)
-        replace_bns_gns(child)
-
-
-def replace_conv2d_ws(module):
-    for name, child in module.named_children():
-        if isinstance(child, nn.Conv2d):
-            conv2dws = Conv2dWS(
-                in_channels=child.in_channels,
-                out_channels=child.out_channels,
-                kernel_size=child.kernel_size,
-                stride=child.stride,
-                padding=child.padding,
-                dilation=child.dilation,
-                groups=child.groups,
-                bias=child.bias is not None)
-            conv2dws.weight = child.weight
-            conv2dws.bias = child.bias
-            setattr(module, name, conv2dws)
-        replace_conv2d_ws(child)
-
-
-class Conv2dWS(nn.Conv2d):
-    """ https://github.com/joe-siyuan-qiao/WeightStandardization
-    """
-    def forward(self, x):
-        weight = self.weight
-        weight_mean = weight.mean(dim=1, keepdim=True).mean(dim=2,
-                                  keepdim=True).mean(dim=3, keepdim=True)
-        weight = weight - weight_mean
-        std = weight.view(weight.size(0), -1).std(dim=1).view(-1, 1, 1, 1) + 1e-5
-        weight = weight / std.expand_as(weight)
-        return F.conv2d(x, weight, self.bias, self.stride,
-                        self.padding, self.dilation, self.groups)
 
 
 class HeadFC(nn.Module):
