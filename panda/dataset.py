@@ -61,8 +61,8 @@ class PandaDataset(Dataset):
         return item.image_id, xs, item.isup_grade
 
 
-MEAN = [0.485, 0.456, 0.406]
-STD = [0.229, 0.224, 0.225]
+MEAN = [0.894, 0.789, 0.857]
+STD = [0.140, 0.256, 0.173]
 to_torch = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize(mean=MEAN, std=STD),
