@@ -6,7 +6,7 @@ from torch import nn
 from torch.nn import functional as F
 import torchvision.models
 
-from . import gnws_resnet as gnws_resnets
+from . import gnws_resnet
 
 
 N_CLASSES = 6
@@ -113,11 +113,11 @@ resnet34 = partial(resnet, name='resnet34')
 resnet50 = partial(resnet, name='resnet50')
 
 
-def gnws_resnet(name: str, head_name: str, pretrained: bool = True):
+def resnet_gnws(name: str, head_name: str, pretrained: bool = True):
     """
     https://github.com/joe-siyuan-qiao/pytorch-classification
     """
-    base = getattr(gnws_resnets, name)()
+    base = getattr(gnws_resnet, name)()
     if pretrained:
         weights_name = {
             'resnet50': 'R-50-GN-WS.pth.tar',
@@ -132,4 +132,20 @@ def gnws_resnet(name: str, head_name: str, pretrained: bool = True):
     )
 
 
-gnws_resnet50 = partial(gnws_resnet, name='resnet50')
+resnet50_gnws = partial(resnet_gnws, name='resnet50')
+
+
+
+def resnet_swsl(name: str, head_name: str, pretrained: bool = True):
+    # TODO kaggle support
+    base = torch.hub.load(
+        'facebookresearch/semi-supervised-ImageNet1K-models', name)
+    head_cls = globals()[head_name]
+    return ResNet(
+        base=base,
+        head_cls=head_cls,
+        n_outputs=N_CLASSES,
+    )
+
+
+resnet50_swsl = partial(resnet_swsl, name='resnet50_swsl')
