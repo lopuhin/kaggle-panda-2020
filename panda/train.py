@@ -15,8 +15,9 @@ from torch.utils.data import DataLoader
 from torch.cuda import amp
 import tqdm
 
-from .dataset import PandaDataset, one_from_torch
+from .dataset import PandaDataset, one_from_torch, N_CLASSES
 from . import models
+from .utils import OptimizedRounder
 
 
 def main():
@@ -64,7 +65,7 @@ def main():
 
     root = Path('data/train_images')
 
-    def make_loader(df, **kwargs):
+    def make_loader(df, training):
         dataset = PandaDataset(
             root=root,
             df=df,
@@ -72,12 +73,12 @@ def main():
             n_patches=args.n_patches,
             scale=args.scale,
             level=args.level,
-            **kwargs,
+            training=training,
         )
         return DataLoader(
             dataset,
             batch_size=args.batch_size,
-            shuffle=True,
+            shuffle=training,
             num_workers=args.workers,
         )
 
@@ -159,8 +160,17 @@ def main():
             predictions.extend(output.cpu().numpy())
             targets.extend(ys.cpu().numpy())
             image_ids.extend(ids)
-        predictions = np.digitize(predictions, -0.5 + np.array(range(1, 6)))
-        kappa = cohen_kappa_score(targets, predictions, weights='quadratic')
+        predictions = np.array(predictions)
+        targets = np.array(targets)
+        kfold = StratifiedKFold(args.n_folds, shuffle=True, random_state=42)
+        oof_predictions, oof_targets = [], []
+        for train_ids, valid_ids in kfold.split(targets, targets):
+            rounder = OptimizedRounder(n_classes=N_CLASSES)
+            rounder.fit(predictions[train_ids], targets[train_ids])
+            oof_predictions.extend(rounder.predict(predictions[valid_ids]))
+            oof_targets.extend(targets[valid_ids])
+        kappa = cohen_kappa_score(
+            oof_targets, oof_predictions, weights='quadratic')
         return {
             'valid_loss': np.mean(losses),
             'kappa': kappa,

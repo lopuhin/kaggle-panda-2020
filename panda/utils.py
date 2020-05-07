@@ -1,5 +1,9 @@
+from functools import partial
+
 import cv2
 import numpy as np
+import scipy as sp
+from sklearn import metrics
 
 
 def crop_white(image: np.ndarray, value: int = 255) -> np.ndarray:
@@ -47,3 +51,29 @@ def rotate_image(image: np.ndarray, angle: float) -> np.ndarray:
         borderValue=(255, 255, 255),
     )
     return rotated_mat
+
+
+class OptimizedRounder:
+    """ Based on
+    https://www.kaggle.com/abhishek/optimizer-for-quadratic-weighted-kappa
+    """
+    def __init__(self, n_classes: int):
+        self.n_classes = n_classes
+        self.coef_ = None
+
+    def _kappa_loss(self, coef, X, y):
+        try:
+            X_p = np.digitize(X, coef)
+        except ValueError:
+            return 1
+        ll = metrics.cohen_kappa_score(y, X_p, weights='quadratic')
+        return -ll
+
+    def fit(self, X, y):
+        loss_partial = partial(self._kappa_loss, X=X, y=y)
+        initial_coef = [0.5 + i for i in range(self.n_classes - 1)]
+        self.coef_ = sp.optimize.minimize(
+            loss_partial, initial_coef, method='nelder-mead')['x']
+
+    def predict(self, X):
+        return np.digitize(X, self.coef_)

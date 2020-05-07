@@ -16,6 +16,9 @@ from torchvision import transforms
 from .utils import crop_white, rotate_image
 
 
+N_CLASSES = 6
+
+
 class PandaDataset(Dataset):
     def __init__(
             self, root: Path,
