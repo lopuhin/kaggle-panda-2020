@@ -156,9 +156,10 @@ def main():
             with amp.autocast(enabled=amp_enabled):
                 output, loss = forward(xs, ys)
             losses.append(float(loss))
-            predictions.extend(output.cpu().numpy().argmax(1))
+            predictions.extend(output.cpu().numpy())
             targets.extend(ys.cpu().numpy())
             image_ids.extend(ids)
+        predictions = np.digitize(predictions, -0.5 + np.array(range(1, 6)))
         kappa = cohen_kappa_score(targets, predictions, weights='quadratic')
         return {
             'valid_loss': np.mean(losses),

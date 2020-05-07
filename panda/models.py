@@ -28,7 +28,7 @@ class ResNet(nn.Module):
         x = torch.cat([self.avgpool(x), self.maxpool(x)], dim=1)
         x = torch.flatten(x, 1)
         x = self.head(x)
-        return x
+        return x.squeeze(1)
 
     def get_features(self, x):
         base = self.base
