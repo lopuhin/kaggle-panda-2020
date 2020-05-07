@@ -10,5 +10,5 @@ Update code::
 
 Update model::
 
-    cp run-folder/model.pt run-folder/params.json data/panda-2020-models/
+    cp run-folder/model.pt data/panda-2020-models/
     kaggle datasets version -p data/panda-2020-models/ -m 'update'

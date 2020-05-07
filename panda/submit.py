@@ -1,7 +1,7 @@
 import argparse
-import json
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader
@@ -27,8 +27,8 @@ def main():
         df.to_csv('submission.csv', index=False)
         return
 
-    model_path = Path(args.model_path)
-    params = json.loads((model_path / 'params.json').read_text())
+    state = torch.load(args.model_path, map_location='cpu')
+    params = state['params']
     if args.batch_size:
         params['batch_size'] = args.batch_size
 
@@ -52,8 +52,7 @@ def main():
     model = getattr(models, params['model'])(
         head_name=params['head'], pretrained=False)
     model.to(device)
-    model.load_state_dict(
-        torch.load(model_path / 'model.pt', map_location='cpu'))
+    model.load_state_dict(state['weights'])
     model.eval()
 
     predictions = []
@@ -63,7 +62,7 @@ def main():
             xs = xs.to(device)
             ys = ys.to(device)
             output = model(xs).cpu().numpy()
-            predictions.extend(output.argmax(1))
+            predictions.extend(np.digitize(output, state['bins']))
             image_ids.extend(ids)
 
     by_image_id = dict(zip(image_ids, predictions))

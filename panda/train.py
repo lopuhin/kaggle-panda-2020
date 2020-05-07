@@ -47,6 +47,7 @@ def main():
     args = parser.parse_args()
     run_root = Path(args.run_root)
     run_root.mkdir(parents=True, exist_ok=True)
+    params = vars(args)
     if not args.validation:
         to_clean = ['json-log-plots.log']
         for name in to_clean:
@@ -54,7 +55,7 @@ def main():
             if path.exists():
                 path.unlink()
         (run_root / 'params.json').write_text(
-            json.dumps(vars(args), indent=4, sort_keys=True))
+            json.dumps(params, indent=4, sort_keys=True))
 
     df = pd.read_csv('data/train.csv')
     kfold = StratifiedKFold(args.n_folds, shuffle=True, random_state=42)
@@ -169,32 +170,43 @@ def main():
             rounder.fit(predictions[train_ids], targets[train_ids])
             oof_predictions.extend(rounder.predict(predictions[valid_ids]))
             oof_targets.extend(targets[valid_ids])
-        kappa = cohen_kappa_score(
-            oof_targets, oof_predictions, weights='quadratic')
-        return {
+        metrics = {
             'valid_loss': np.mean(losses),
-            'kappa': kappa,
+            'kappa': cohen_kappa_score(
+                oof_targets, oof_predictions, weights='quadratic')
         }
+        rounder = OptimizedRounder(n_classes=N_CLASSES)
+        rounder.fit(predictions, targets)
+        bins = rounder.coef_
+        return metrics, bins
 
     model_path = run_root / 'model.pt'
     if args.validation:
-        model.load_state_dict(torch.load(model_path, map_location='cpu'))
-        valid_metrics = validate()
+        state = torch.load(model_path, map_location='cpu')
+        model.load_state_dict(state['weights'])
+        valid_metrics, bins = validate()
         for k, v in sorted(valid_metrics.items()):
             print(f'{k:<20} {v:.4f}')
+        print('bins', bins)
         return
 
     epoch_pbar = tqdm.trange(args.epochs, dynamic_ncols=True)
     best_kappa = 0
     for epoch in epoch_pbar:
         train_epoch()
-        valid_metrics = validate()
+        valid_metrics, bins = validate()
         epoch_pbar.set_postfix(
             {k: f'{v:.4f}' for k, v in valid_metrics.items()})
         json_log_plots.write_event(run_root, step, **valid_metrics)
         if valid_metrics['kappa'] > best_kappa:
             best_kappa = valid_metrics['kappa']
-            torch.save(model.state_dict(), model_path)
+            state = {
+                'weights': model.state_dict(),
+                'bins': bins,
+                'metrics': valid_metrics,
+                'params': params,
+            }
+            torch.save(state, model_path)
 
 
 if __name__ == '__main__':
