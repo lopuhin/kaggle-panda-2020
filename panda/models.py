@@ -149,3 +149,4 @@ def resnet_swsl(name: str, head_name: str, pretrained: bool = True):
 
 
 resnet50_swsl = partial(resnet_swsl, name='resnet50_swsl')
+resnext50_32x4_swsl = partial(resnet_swsl, name='resnext50_32x4d_swsl')
