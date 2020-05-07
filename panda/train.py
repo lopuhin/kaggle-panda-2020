@@ -88,7 +88,7 @@ def main():
     model = getattr(models, args.model)(head_name=args.head)
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.L1Loss()
     amp_enabled = bool(args.amp)
     scaler = amp.GradScaler(enabled=amp_enabled)
     step = 0

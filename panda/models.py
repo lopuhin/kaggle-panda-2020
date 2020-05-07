@@ -9,17 +9,12 @@ import torchvision.models
 from . import gnws_resnet
 
 
-N_CLASSES = 6
-
-
 class ResNet(nn.Module):
-    def __init__(self, n_outputs: int, base: nn.Module, head_cls):
+    def __init__(self, base: nn.Module, head_cls):
         super().__init__()
         self.base = base
         self.head = head_cls(
-            in_features=2 * self.base.fc.in_features,
-            out_features=n_outputs,
-        )
+            in_features=2 * self.base.fc.in_features, out_features=1)
         self.avgpool = nn.AdaptiveAvgPool1d(output_size=1)
         self.maxpool = nn.AdaptiveMaxPool1d(output_size=1)
     
@@ -104,7 +99,6 @@ def resnet(name: str, head_name: str, pretrained: bool = True):
     return ResNet(
         base=base,
         head_cls=head_cls,
-        n_outputs=N_CLASSES,
     )
 
 
@@ -128,12 +122,10 @@ def resnet_gnws(name: str, head_name: str, pretrained: bool = True):
     return ResNet(
         base=base,
         head_cls=head_cls,
-        n_outputs=N_CLASSES,
     )
 
 
 resnet50_gnws = partial(resnet_gnws, name='resnet50')
-
 
 
 def resnet_swsl(name: str, head_name: str, pretrained: bool = True):
@@ -144,7 +136,6 @@ def resnet_swsl(name: str, head_name: str, pretrained: bool = True):
     return ResNet(
         base=base,
         head_cls=head_cls,
-        n_outputs=N_CLASSES,
     )
 
 
