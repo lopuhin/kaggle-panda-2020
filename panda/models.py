@@ -45,6 +45,7 @@ class ResNet(nn.Module):
         return x
 
     def train(self, mode=True):
+        super().train(mode)
         if mode and self.frozen:
             self.base.conv1.requires_grad_(False)
             self.base.bn1.requires_grad_(False)
