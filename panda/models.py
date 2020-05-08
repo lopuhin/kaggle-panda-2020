@@ -17,6 +17,7 @@ class ResNet(nn.Module):
             in_features=2 * self.base.fc.in_features, out_features=1)
         self.avgpool = nn.AdaptiveAvgPool1d(output_size=1)
         self.maxpool = nn.AdaptiveMaxPool1d(output_size=1)
+        self.frozen = False
     
     def forward(self, x):
         batch_size, n_patches, *patch_shape = x.shape
@@ -42,6 +43,16 @@ class ResNet(nn.Module):
         x = base.layer3(x)
         x = base.layer4(x)
         return x
+
+    def train(self, mode=True):
+        if mode and self.frozen:
+            self.base.conv1.requires_grad_(False)
+            self.base.bn1.requires_grad_(False)
+            self.base.bn1.eval()
+            self.base.layer1.requires_grad_(False)
+            for m in self.base.layer1.modules():
+                if isinstance(m, nn.BatchNorm2d):
+                    m.eval()
 
 
 class HeadFC(nn.Module):

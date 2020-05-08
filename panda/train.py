@@ -43,6 +43,7 @@ def main():
     arg('--save-patches', action='store_true')
     arg('--lr-scheduler', default='cosine')
     arg('--amp', type=int, default=1)
+    arg('--frozen', type=int, default=0)
 
     args = parser.parse_args()
     run_root = Path(args.run_root)
@@ -66,7 +67,7 @@ def main():
 
     root = Path('data/train_images')
 
-    def make_loader(df, training):
+    def make_loader(df, batch_size, training):
         dataset = PandaDataset(
             root=root,
             df=df,
@@ -78,13 +79,12 @@ def main():
         )
         return DataLoader(
             dataset,
-            batch_size=args.batch_size,
+            batch_size=batch_size,
             shuffle=training,
             num_workers=args.workers,
         )
 
-    train_loader = make_loader(df_train, training=True)
-    valid_loader = make_loader(df_valid, training=False)
+    valid_loader = make_loader(df_valid, args.batch_size, training=False)
 
     device = torch.device(args.device)
     model = getattr(models, args.model)(head_name=args.head)
@@ -113,11 +113,15 @@ def main():
         loss = criterion(output, ys)
         return output, loss
 
+    grad_acc = args.grad_acc
+    batch_size = args.batch_size
+
     def train_epoch():
         nonlocal step
         model.train()
         report_freq = 5
         running_losses = []
+        train_loader = make_loader(df_train, batch_size, training=True)
         pbar = tqdm.tqdm(train_loader, dynamic_ncols=True, desc='train')
         optimizer.zero_grad()
         for i, (ids, xs, ys) in enumerate(pbar):
@@ -126,7 +130,7 @@ def main():
             with amp.autocast(enabled=amp_enabled):
                 _, loss = forward(xs, ys)
             scaler.scale(loss).backward()
-            if (i + 1) % args.grad_acc == 0:
+            if (i + 1) % grad_acc == 0:
                 scaler.step(optimizer)
                 scaler.update()
                 optimizer.zero_grad()
@@ -193,6 +197,15 @@ def main():
     epoch_pbar = tqdm.trange(args.epochs, dynamic_ncols=True)
     best_kappa = 0
     for epoch in epoch_pbar:
+        if args.frozen:
+            batch_size = args.batch_size
+            grad_acc = args.grad_acc
+            model.frozen = True
+            if epoch == 0:
+                model.frozen = False
+                batch_size //= 2
+                grad_acc *= 2
+
         train_epoch()
         valid_metrics, bins = validate()
         epoch_pbar.set_postfix(
