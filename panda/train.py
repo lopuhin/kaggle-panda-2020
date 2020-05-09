@@ -60,7 +60,7 @@ def main():
 
 def run_main(device_id, args):
     is_main = device_id in {0, None}
-    n_devices = args.ddp
+    n_devices = max(1, args.ddp)
     ddp_rank = device_id
 
     params = vars(args)
@@ -168,7 +168,7 @@ def run_main(device_id, args):
                          disable=not is_main)
         optimizer.zero_grad()
         for i, (ids, xs, ys) in enumerate(pbar):
-            step += len(ids)
+            step += len(ids) * n_devices
             save_patches(xs)
             with amp.autocast(enabled=amp_enabled):
                 _, loss = forward(xs, ys)
