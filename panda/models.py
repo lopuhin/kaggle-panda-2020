@@ -108,10 +108,7 @@ def linear_ws(layer, x):
 def resnet(name: str, head_name: str, pretrained: bool = True):
     base = getattr(torchvision.models, name)(pretrained=pretrained)
     head_cls = globals()[head_name]
-    return ResNet(
-        base=base,
-        head_cls=head_cls,
-    )
+    return ResNet(base=base, head_cls=head_cls)
 
 
 resnet18 = partial(resnet, name='resnet18')
@@ -131,10 +128,7 @@ def resnet_gnws(name: str, head_name: str, pretrained: bool = True):
         state = torch.load(Path('data') / weights_name, map_location='cpu')
         base.load_state_dict({k.split('.', 1)[1]: v for k, v in state.items()})
     head_cls = globals()[head_name]
-    return ResNet(
-        base=base,
-        head_cls=head_cls,
-    )
+    return ResNet(base=base, head_cls=head_cls)
 
 
 resnet50_gnws = partial(resnet_gnws, name='resnet50')
@@ -145,11 +139,18 @@ def resnet_swsl(name: str, head_name: str, pretrained: bool = True):
     base = torch.hub.load(
         'facebookresearch/semi-supervised-ImageNet1K-models', name)
     head_cls = globals()[head_name]
-    return ResNet(
-        base=base,
-        head_cls=head_cls,
-    )
+    return ResNet(base=base, head_cls=head_cls)
 
 
 resnet50_swsl = partial(resnet_swsl, name='resnet50_swsl')
 resnext50_32x4_swsl = partial(resnet_swsl, name='resnext50_32x4d_swsl')
+
+
+def resnet_timm(name: str, head_name: str, pretrained: bool = True):
+    import timm
+    base = timm.create_model(name, pretrained=pretrained)
+    head_cls = globals()[head_name]
+    return ResNet(base=base, head_cls=head_cls)
+
+
+resnet34_timm = partial(resnet_timm, name='resnet34')

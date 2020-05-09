@@ -10,6 +10,7 @@ scikit-image==0.16.2
 scikit-learn==0.22.2.post1
 scipy==1.4.1
 tifffile==2020.2.16
+timm==0.1.26
 torch==1.6.0.dev20200502+cu101
 torchvision==0.7.0.dev20200501+cu101
 tqdm==4.45.0
