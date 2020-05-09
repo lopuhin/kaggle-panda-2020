@@ -61,7 +61,8 @@ class PandaDataset(Dataset):
         xs = torch.stack([to_torch(x) for x in patches])
         assert xs.shape == (self.n_patches, 3, self.patch_size, self.patch_size)
         assert xs.dtype == torch.float32
-        return item.image_id, xs, item.isup_grade
+        ys = torch.tensor(item.isup_grade, dtype=torch.float32)
+        return item.image_id, xs, ys
 
 
 MEAN = [0.894, 0.789, 0.857]

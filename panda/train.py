@@ -115,7 +115,7 @@ def run_main(device_id, args):
     device = torch.device(args.device, index=device_id)
     model = getattr(models, args.model)(head_name=args.head)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    criterion = nn.L1Loss()
+    criterion = nn.SmoothL1Loss()
     amp_enabled = bool(args.amp)
     scaler = amp.GradScaler(enabled=amp_enabled)
     step = 0
