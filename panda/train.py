@@ -31,7 +31,7 @@ def main():
     arg('run_root')
     arg('--fold', type=int, default=0)
     arg('--n-folds', type=int, default=5)
-    arg('--lr', type=float, default=3e-5)
+    arg('--lr', type=float, default=6e-5)
     arg('--batch-size', type=int, default=32)
     arg('--grad-acc', type=int, default=1)
     arg('--n-patches', type=int, default=12)
