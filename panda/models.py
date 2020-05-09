@@ -156,10 +156,25 @@ def resnet_timm(name: str, head_name: str, pretrained: bool = True):
 resnet34_timm = partial(resnet_timm, name='resnet34')
 
 
+class ResNetFixUp(ResNet):
+    def get_features(self, x):
+        base = self.base
+        x = base.conv1(x)
+        x = base.relu(x + base.bias1)
+        x = base.maxpool(x)
+
+        x = base.layer1(x)
+        x = base.layer2(x)
+        x = base.layer3(x)
+        x = base.layer4(x)
+
+        return x
+
+
 def resnet_fixup(name: str, head_name: str, pretrained: bool = True):
-    base = getattr(fixup_resnet, name)
+    base = getattr(fixup_resnet, name)()
     head_cls = globals()[head_name]
-    return ResNet(base=base, head_cls=head_cls)
+    return ResNetFixUp(base=base, head_cls=head_cls)
 
 
-resnet34_fixup = partial(resnet_fixup, name='resnet34')
+resnet34_fixup = partial(resnet_fixup, name='fixup_resnet34')
