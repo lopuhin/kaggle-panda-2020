@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 from pathlib import Path
 import random
 
@@ -12,7 +13,10 @@ from sklearn.metrics import cohen_kappa_score
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 from torch.cuda import amp
+from torch.backends import cudnn
+import torch.multiprocessing as mp
 import tqdm
 
 from .dataset import PandaDataset, one_from_torch, N_CLASSES
@@ -44,19 +48,35 @@ def main():
     arg('--lr-scheduler', default='cosine')
     arg('--amp', type=int, default=1)
     arg('--frozen', type=int, default=0)
-
+    arg('--ddp', type=int, default=0)
+    arg('--benchmark', type=int, default=0)
     args = parser.parse_args()
-    run_root = Path(args.run_root)
-    run_root.mkdir(parents=True, exist_ok=True)
+
+    if args.ddp:
+        n_devices = torch.cuda.device_count()
+        if n_devices <= 1:
+            parser.error('multiple GPUs not detected')
+        mp.spawn(run_main, (args,), n_devices)
+    else:
+        run_main(device_id=None, args=args)
+
+
+def run_main(device_id, args):
+    is_main = device_id in {0, None}
+    n_devices = torch.cuda.device_count()
+
     params = vars(args)
-    if not args.validation:
-        to_clean = ['json-log-plots.log']
-        for name in to_clean:
-            path = run_root / name
-            if path.exists():
-                path.unlink()
-        (run_root / 'params.json').write_text(
-            json.dumps(params, indent=4, sort_keys=True))
+    run_root = Path(args.run_root)
+    if is_main:
+        run_root.mkdir(parents=True, exist_ok=True)
+        if not args.validation:
+            to_clean = ['json-log-plots.log']
+            for name in to_clean:
+                path = run_root / name
+                if path.exists():
+                    path.unlink()
+            (run_root / 'params.json').write_text(
+                json.dumps(params, indent=4, sort_keys=True))
 
     df = pd.read_csv('data/train.csv')
     kfold = StratifiedKFold(args.n_folds, shuffle=True, random_state=42)
@@ -77,16 +97,24 @@ def main():
             level=args.level,
             training=training,
         )
+        # TODO validate on all devices
+        if training and args.ddp:
+            sampler = DistributedSampler(dataset)
+        else:
+            sampler = None
         return DataLoader(
             dataset,
             batch_size=batch_size,
-            shuffle=training,
+            shuffle=training and not sampler,
+            sampler=sampler,
             num_workers=args.workers,
         )
 
     valid_loader = make_loader(df_valid, args.batch_size, training=False)
 
-    device = torch.device(args.device)
+    if args.benchmark:
+        cudnn.benchmark = True
+    device = torch.device(args.device, index=device_id)
     model = getattr(models, args.model)(head_name=args.head)
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -100,13 +128,25 @@ def main():
         lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer, T_max=args.epochs, eta_min=args.lr / 100)
     elif args.lr_scheduler:
-        parser.error(f'unexpected schedule {args.schedule}')
+        raise ValueError(f'unexpected schedule {args.schedule}')
+
+    if args.ddp:
+        print(f'device {device} initializing process group')
+        os.environ['MASTER_PORT'] = '40390'
+        os.environ['MASTER_ADDR'] = '127.0.0.1'
+        torch.distributed.init_process_group(
+            backend='nccl', rank=device_id, world_size=n_devices)
+        model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
+        model = nn.parallel.DistributedDataParallel(
+            model, device_ids=[device_id], output_device=device_id)
+        print(f'process group for {device} initialized')
 
     if args.save_patches:
         for p in run_root.glob('patch-*.jpeg'):
             p.unlink()
 
     def forward(xs, ys):
+        # TODO try non_blocking=True
         xs = xs.to(device)
         ys = ys.to(device)
         output = model(xs)
@@ -205,21 +245,21 @@ def main():
                 model.frozen = False
                 batch_size //= 2
                 grad_acc *= 2
-
         train_epoch()
-        valid_metrics, bins = validate()
-        epoch_pbar.set_postfix(
-            {k: f'{v:.4f}' for k, v in valid_metrics.items()})
-        json_log_plots.write_event(run_root, step, **valid_metrics)
-        if valid_metrics['kappa'] > best_kappa:
-            best_kappa = valid_metrics['kappa']
-            state = {
-                'weights': model.state_dict(),
-                'bins': bins,
-                'metrics': valid_metrics,
-                'params': params,
-            }
-            torch.save(state, model_path)
+        if is_main:
+            valid_metrics, bins = validate()
+            epoch_pbar.set_postfix(
+                {k: f'{v:.4f}' for k, v in valid_metrics.items()})
+            json_log_plots.write_event(run_root, step, **valid_metrics)
+            if valid_metrics['kappa'] > best_kappa:
+                best_kappa = valid_metrics['kappa']
+                state = {
+                    'weights': model.state_dict(),
+                    'bins': bins,
+                    'metrics': valid_metrics,
+                    'params': params,
+                }
+                torch.save(state, model_path)
 
 
 if __name__ == '__main__':
