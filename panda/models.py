@@ -6,7 +6,7 @@ from torch import nn
 from torch.nn import functional as F
 import torchvision.models
 
-from . import gnws_resnet
+from . import gnws_resnet, fixup_resnet
 
 
 class ResNet(nn.Module):
@@ -154,3 +154,12 @@ def resnet_timm(name: str, head_name: str, pretrained: bool = True):
 
 
 resnet34_timm = partial(resnet_timm, name='resnet34')
+
+
+def resnet_fixup(name: str, head_name: str, pretrained: bool = True):
+    base = getattr(fixup_resnet, name)
+    head_cls = globals()[head_name]
+    return ResNet(base=base, head_cls=head_cls)
+
+
+resnet34_fixup = partial(resnet_fixup, name='resnet34')
