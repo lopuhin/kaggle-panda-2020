@@ -58,7 +58,9 @@ class PandaDataset(Dataset):
             image = random_rot90(image)
             # image = random_rotate(image)
             image = random_pad(image, self.patch_size)
-        patches = make_patches(image, n=self.n_patches, size=self.patch_size)
+        patches = make_patches(
+            image, n=self.n_patches, size=self.patch_size,
+            randomize=self.training)
         xs = torch.stack([to_torch(x) for x in patches])
         assert xs.shape == (self.n_patches, 3, self.patch_size, self.patch_size)
         assert xs.dtype == torch.float32
@@ -113,7 +115,9 @@ def random_pad(image: np.ndarray, size: int) -> np.ndarray:
         constant_values=255)
 
 
-def make_patches(image, n: int, size: int) -> np.ndarray:
+def make_patches(
+        image: np.ndarray, n: int, size: int, randomize: bool = False,
+        ) -> np.ndarray:
     """ Based on https://www.kaggle.com/iafoss/panda-16x128x128-tiles
     """
     pad0 = (size - image.shape[0] % size) % size
@@ -134,5 +138,16 @@ def make_patches(image, n: int, size: int) -> np.ndarray:
             image,
             [[0, n - len(image)], [0, 0], [0, 0], [0, 0]],
             constant_values=255)
-    idxs = np.argsort(image.reshape(image.shape[0], -1).sum(-1))[:n]
+    counts = image.reshape(image.shape[0], -1).sum(-1)
+    idxs = np.argsort(counts)[:n]
+    if randomize:
+        max_value = 3 * size**2 * 255
+        probs = (1 - counts / max_value)
+        if (probs > 0).sum() > n:
+            probs /= probs.sum()
+            probs = probs**2
+            probs /= probs.sum()
+            assert probs.shape == (len(image),)
+            idxs = np.random.choice(
+                range(len(image)), size=n, p=probs, replace=False)
     return image[idxs]
