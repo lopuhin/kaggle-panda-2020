@@ -50,7 +50,7 @@ def main():
     arg('--frozen', type=int, default=0)
     arg('--ddp', type=int, default=0, help='number of devices to use with ddp')
     arg('--benchmark', type=int, default=1)
-    arg('--optimizer', type='str', default='adam')
+    arg('--optimizer', default='adam')
     arg('--wd', type=float, default=0)
     args = parser.parse_args()
 
