@@ -50,6 +50,8 @@ def main():
     arg('--frozen', type=int, default=0)
     arg('--ddp', type=int, default=0, help='number of devices to use with ddp')
     arg('--benchmark', type=int, default=1)
+    arg('--optimizer', type='str', default='adam')
+    arg('--wd', type=float, default=0)
     args = parser.parse_args()
 
     if args.ddp:
@@ -114,16 +116,37 @@ def run_main(device_id, args):
         cudnn.benchmark = True
     device = torch.device(args.device, index=device_id)
     model = getattr(models, args.model)(head_name=args.head)
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    if args.optimizer == 'adam':
+        assert args.wd == 0
+        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    elif args.optimizer == 'adamw':
+        optimizer = torch.optim.AdamW(
+            model.parameters(), lr=args.lr, weight_decay=args.wd)
+    elif args.optimizer == 'sgd':
+        optimizer = torch.optim.SGD(
+            model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.wd)
+    else:
+        raise ValueError(f'unknown optimizer {args.optimizer}')
     criterion = nn.SmoothL1Loss()
     amp_enabled = bool(args.amp)
     scaler = amp.GradScaler(enabled=amp_enabled)
     step = 0
 
     lr_scheduler = None
+    lr_scheduler_per_step = False
     if args.lr_scheduler == 'cosine':
         lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer, T_max=args.epochs, eta_min=args.lr / 100)
+    elif args.lr_scheduler == 'step':
+        lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
+            optimizer, [int(args.epochs * 0.6), int(args.epochs * 0.8)])
+    elif args.lr_scheduler == '1cycle':
+        lr_scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer, args.lr,
+            epochs=args.epochs,
+            steps_per_epoch=len(df_train) // args.batch_size,
+        )
+        lr_scheduler_per_step = True
     elif args.lr_scheduler:
         raise ValueError(f'unexpected schedule {args.schedule}')
 
@@ -177,13 +200,15 @@ def run_main(device_id, args):
                 scaler.update()
                 optimizer.zero_grad()
             running_losses.append(float(loss))
+            if lr_scheduler_per_step:
+                lr_scheduler.step()
             if i and i % report_freq == 0:
                 mean_loss = np.mean(running_losses)
                 running_losses.clear()
                 pbar.set_postfix({'loss': f'{mean_loss:.4f}'})
                 json_log_plots.write_event(run_root, step, loss=mean_loss)
         pbar.close()
-        if lr_scheduler is not None:
+        if lr_scheduler is not None and not lr_scheduler_per_step:
             lr_scheduler.step()
 
     def save_patches(xs):
