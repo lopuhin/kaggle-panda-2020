@@ -48,22 +48,20 @@ def main():
     arg('--lr-scheduler', default='cosine')
     arg('--amp', type=int, default=1)
     arg('--frozen', type=int, default=0)
-    arg('--ddp', type=int, default=0)
+    arg('--ddp', type=int, default=0, help='number of devices to use with ddp')
     arg('--benchmark', type=int, default=0)
     args = parser.parse_args()
 
     if args.ddp:
-        n_devices = torch.cuda.device_count()
-        if n_devices <= 1:
-            parser.error('multiple GPUs not detected')
-        mp.spawn(run_main, (args,), n_devices)
+        mp.spawn(run_main, (args,), args.ddp)
     else:
         run_main(device_id=None, args=args)
 
 
 def run_main(device_id, args):
     is_main = device_id in {0, None}
-    n_devices = torch.cuda.device_count()
+    n_devices = args.ddp
+    ddp_rank = device_id
 
     params = vars(args)
     run_root = Path(args.run_root)
@@ -116,7 +114,6 @@ def run_main(device_id, args):
         cudnn.benchmark = True
     device = torch.device(args.device, index=device_id)
     model = getattr(models, args.model)(head_name=args.head)
-    model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     criterion = nn.L1Loss()
     amp_enabled = bool(args.amp)
@@ -135,11 +132,15 @@ def run_main(device_id, args):
         os.environ['MASTER_PORT'] = '40390'
         os.environ['MASTER_ADDR'] = '127.0.0.1'
         torch.distributed.init_process_group(
-            backend='nccl', rank=device_id, world_size=n_devices)
+            backend='nccl', rank=ddp_rank, world_size=n_devices)
         model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
+        model.to(device)
         model = nn.parallel.DistributedDataParallel(
-            model, device_ids=[device_id], output_device=device_id)
+            model, device_ids=[device_id], output_device=device_id,
+            find_unused_parameters=True)  # not sure why it's needed?
         print(f'process group for {device} initialized')
+    else:
+        model.to(device)
 
     if args.save_patches:
         for p in run_root.glob('patch-*.jpeg'):
@@ -151,6 +152,7 @@ def run_main(device_id, args):
         ys = ys.to(device)
         output = model(xs)
         loss = criterion(output, ys)
+        output = output.detach().cpu().numpy()
         return output, loss
 
     grad_acc = args.grad_acc
@@ -162,7 +164,8 @@ def run_main(device_id, args):
         report_freq = 5
         running_losses = []
         train_loader = make_loader(df_train, batch_size, training=True)
-        pbar = tqdm.tqdm(train_loader, dynamic_ncols=True, desc='train')
+        pbar = tqdm.tqdm(train_loader, dynamic_ncols=True, desc='train',
+                         disable=not is_main)
         optimizer.zero_grad()
         for i, (ids, xs, ys) in enumerate(pbar):
             step += len(ids)
@@ -202,7 +205,7 @@ def run_main(device_id, args):
             with amp.autocast(enabled=amp_enabled):
                 output, loss = forward(xs, ys)
             losses.append(float(loss))
-            predictions.extend(output.cpu().numpy())
+            predictions.extend(output)
             targets.extend(ys.cpu().numpy())
             image_ids.extend(ids)
         predictions = np.array(predictions)
