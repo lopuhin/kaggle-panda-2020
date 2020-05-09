@@ -141,10 +141,11 @@ def run_main(device_id, args):
         lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
             optimizer, [int(args.epochs * 0.6), int(args.epochs * 0.8)])
     elif args.lr_scheduler == '1cycle':
+        assert not args.frozen
         lr_scheduler = torch.optim.lr_scheduler.OneCycleLR(
             optimizer, args.lr,
             epochs=args.epochs,
-            steps_per_epoch=len(df_train) // args.batch_size,
+            steps_per_epoch=len(make_loader(df_train, args.batch_size, training=True)),
         )
         lr_scheduler_per_step = True
     elif args.lr_scheduler:
@@ -201,7 +202,10 @@ def run_main(device_id, args):
                 optimizer.zero_grad()
             running_losses.append(float(loss))
             if lr_scheduler_per_step:
-                lr_scheduler.step()
+                try:
+                    lr_scheduler.step()
+                except ValueError as e:
+                    print(e)
             if i and i % report_freq == 0:
                 mean_loss = np.mean(running_losses)
                 running_losses.clear()
