@@ -40,7 +40,7 @@ def main():
     arg('--scale', type=float, default=1.0)
     arg('--level', type=int, default=2)
     arg('--epochs', type=int, default=10)
-    arg('--workers', type=int, default=4)
+    arg('--workers', type=int, default=8)
     arg('--model', default='resnet34')
     arg('--head', default='HeadFC2')
     arg('--device', default='cuda')
