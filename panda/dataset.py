@@ -55,6 +55,7 @@ class PandaDataset(Dataset):
                 interpolation=cv2.INTER_AREA)
         if self.training:
             image = random_flip(image)
+            image = random_rot90(image)
             # image = random_rotate(image)
             image = random_pad(image, self.patch_size)
         patches = make_patches(image, n=self.n_patches, size=self.patch_size)
@@ -87,6 +88,13 @@ def one_from_torch(x):
 def random_flip(image: np.ndarray) -> np.ndarray:
     if random.random() < 0.5:
         image = np.fliplr(image)
+    return image
+
+
+def random_rot90(image: np.ndarray) -> np.ndarray:
+    k = random.randint(0, 3)
+    if k > 0:
+        image = np.rot90(image, k)
     return image
 
 
