@@ -49,7 +49,7 @@ def main():
     arg('--amp', type=int, default=1)
     arg('--frozen', type=int, default=0)
     arg('--ddp', type=int, default=0, help='number of devices to use with ddp')
-    arg('--benchmark', type=int, default=0)
+    arg('--benchmark', type=int, default=1)
     args = parser.parse_args()
 
     if args.ddp:
@@ -147,9 +147,8 @@ def run_main(device_id, args):
             p.unlink()
 
     def forward(xs, ys):
-        # TODO try non_blocking=True
-        xs = xs.to(device)
-        ys = ys.to(device)
+        xs = xs.to(device, non_blocking=True)
+        ys = ys.to(device, non_blocking=True)
         output = model(xs)
         loss = criterion(output, ys)
         output = output.detach().cpu().numpy()
