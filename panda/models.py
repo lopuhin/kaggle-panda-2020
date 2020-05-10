@@ -173,17 +173,3 @@ def resnet_timm(name: str, head_name: str, pretrained: bool = True):
 
 
 resnet34_timm = partial(resnet_timm, name='resnet34')
-
-
-class MobileNet(ResNet):
-    def get_features_dim(self):
-        return self.base.classifier[1].in_features
-
-    def get_features(self, x):
-        return self.base.features(x)
-
-
-def mobilenet_v2(head_name: str, pretrained: bool = True):
-    base = torchvision.models.mobilenet_v2(pretrained=pretrained)
-    head_cls = globals()[head_name]
-    return MobileNet(base=base, head_cls=head_cls)
