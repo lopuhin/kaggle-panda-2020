@@ -182,12 +182,14 @@ def run_main(device_id, args):
     grad_acc = args.grad_acc
     batch_size = args.batch_size
 
-    def train_epoch():
+    def train_epoch(epoch):
         nonlocal step
         model.train()
         report_freq = 5
         running_losses = []
         train_loader = make_loader(df_train, batch_size, training=True)
+        if train_loader.sampler is not None:
+            train_loader.sampler.set_epoch(epoch)
         pbar = tqdm.tqdm(train_loader, dynamic_ncols=True, desc='train',
                          disable=not is_main)
         optimizer.zero_grad()
@@ -286,7 +288,7 @@ def run_main(device_id, args):
                 model.frozen = False
                 batch_size //= 2
                 grad_acc *= 2
-        train_epoch()
+        train_epoch(epoch)
         if is_main:
             valid_metrics, bins = validate()
             epoch_pbar.set_postfix(
