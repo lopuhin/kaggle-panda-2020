@@ -37,7 +37,7 @@ def main():
         root=image_root,
         df=df,
         patch_size=params['patch_size'],
-        n_patches=params['n_patches'],
+        n_patches=params['n_test_patches'] or params['n_patches'],
         scale=params['scale'],
         level=params['level'],
         training=False,

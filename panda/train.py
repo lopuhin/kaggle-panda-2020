@@ -35,7 +35,7 @@ def main():
     arg('--batch-size', type=int, default=32)
     arg('--grad-acc', type=int, default=1)
     arg('--n-patches', type=int, default=12)
-    arg('--n-test-patches', type=int, default=12)
+    arg('--n-test-patches', type=int)
     arg('--patch-size', type=int, default=128)
     arg('--scale', type=float, default=1.0)
     arg('--level', type=int, default=2)
@@ -93,7 +93,8 @@ def run_main(device_id, args):
             root=root,
             df=df,
             patch_size=args.patch_size,
-            n_patches=args.n_patches if training else args.n_test_patches,
+            n_patches=args.n_patches if training else (
+                args.n_test_patches or args.n_patches),
             scale=args.scale,
             level=args.level,
             training=training,
