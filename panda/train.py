@@ -1,4 +1,5 @@
 import argparse
+from collections import defaultdict
 import json
 import os
 from pathlib import Path
@@ -65,6 +66,7 @@ def run_main(device_id, args):
     is_main = device_id in {0, None}
     n_devices = max(1, args.ddp)
     ddp_rank = device_id
+    device_id = 0
 
     params = vars(args)
     run_root = Path(args.run_root)
@@ -99,11 +101,9 @@ def run_main(device_id, args):
             level=args.level,
             training=training,
         )
-        # TODO validate on all devices
-        if training and args.ddp:
-            sampler = DistributedSampler(dataset)
-        else:
-            sampler = None
+        sampler = None
+        if args.ddp:
+            sampler = DistributedSampler(dataset, shuffle=training)
         return DataLoader(
             dataset,
             batch_size=batch_size,
@@ -111,8 +111,6 @@ def run_main(device_id, args):
             sampler=sampler,
             num_workers=args.workers,
         )
-
-    valid_loader = make_loader(df_valid, args.batch_size, training=False)
 
     if args.benchmark:
         cudnn.benchmark = True
@@ -229,23 +227,39 @@ def run_main(device_id, args):
     @torch.no_grad()
     def validate():
         model.eval()
-        losses = []
-        predictions = []
-        targets = []
-        image_ids = []
+
+        prediction_results = defaultdict(list)
+        valid_loader = make_loader(df_valid, args.batch_size, training=False)
+        t0 = time.time()
         for ids, xs, ys in valid_loader:
             with amp.autocast(enabled=amp_enabled):
                 output, loss = forward(xs, ys)
-            losses.append(float(loss))
-            predictions.extend(output)
-            targets.extend(ys.cpu().numpy())
-            image_ids.extend(ids)
+            prediction_results['losses'].append(float(loss))
+            prediction_results['predictions'].extend(output)
+            prediction_results['targets'].extend(ys.cpu().numpy())
+            prediction_results['image_ids'].extend(ids)
+        print('finished predictions', time.time() - t0)
+        if args.ddp:
+            paths = [run_root / f'.val_{i}.pth' for i in range(args.ddp)]
+            if not is_main:
+                torch.save(prediction_results, paths[ddp_rank])
+            torch.distributed.barrier()
+            if not is_main:
+                return None, None
+            for p in paths[1:]:
+                worker_results = torch.load(p)
+                for key in list(prediction_results):
+                    prediction_results[key].extend(worker_results[key])
+                p.unlink()
+
         provider_by_id = dict(
             zip(df_valid['image_id'], df_valid['data_provider']))
         providers = np.array([
-            provider_by_id[image_id] for image_id in image_ids])
-        predictions = np.array(predictions)
-        targets = np.array(targets)
+            provider_by_id[image_id]
+            for image_id in prediction_results['image_ids']])
+        predictions = np.array(prediction_results['predictions'])
+        targets = np.array(prediction_results['targets'])
+
         kfold = StratifiedKFold(args.n_folds, shuffle=True, random_state=42)
         oof_predictions, oof_targets, oof_providers = [], [], []
         for train_ids, valid_ids in kfold.split(targets, targets):
@@ -258,7 +272,7 @@ def run_main(device_id, args):
         oof_targets = np.array(oof_targets)
         oof_providers = np.array(oof_providers)
         metrics = {
-            'valid_loss': np.mean(losses),
+            'valid_loss': np.mean(prediction_results['losses']),
             'kappa': cohen_kappa_score(
                 oof_targets, oof_predictions, weights='quadratic')
         }
@@ -274,11 +288,18 @@ def run_main(device_id, args):
     model_path = run_root / 'model.pt'
     if args.validation:
         state = torch.load(model_path, map_location='cpu')
-        load_weights(model, state)
+        if args.ddp:
+            load_weights(model.module, state)
+        else:
+            load_weights(model, state)
+        import time
+        t0 = time.time()
         valid_metrics, bins = validate()
-        for k, v in sorted(valid_metrics.items()):
-            print(f'{k:<20} {v:.4f}')
-        print('bins', bins)
+        if is_main:
+            print(time.time() - t0)
+            for k, v in sorted(valid_metrics.items()):
+                print(f'{k:<20} {v:.4f}')
+            print('bins', bins)
         return
 
     epoch_pbar = tqdm.trange(args.epochs, dynamic_ncols=True)

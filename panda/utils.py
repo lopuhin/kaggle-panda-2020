@@ -70,10 +70,13 @@ class OptimizedRounder:
         return -ll
 
     def fit(self, X, y):
+        import time
+        t0 = time.time()
         loss_partial = partial(self._kappa_loss, X=X, y=y)
         initial_coef = [0.5 + i for i in range(self.n_classes - 1)]
         self.coef_ = sp.optimize.minimize(
             loss_partial, initial_coef, method='nelder-mead')['x']
+        print('fit done in ', time.time() - t0)
 
     def predict(self, X):
         return np.digitize(X, self.coef_)
