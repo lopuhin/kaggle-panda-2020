@@ -21,7 +21,7 @@ import tqdm
 
 from .dataset import PandaDataset, one_from_torch, N_CLASSES
 from . import models
-from .utils import OptimizedRounder
+from .utils import OptimizedRounder, load_weights
 
 
 def main():
@@ -273,7 +273,7 @@ def run_main(device_id, args):
     model_path = run_root / 'model.pt'
     if args.validation:
         state = torch.load(model_path, map_location='cpu')
-        model.load_state_dict(state['weights'])
+        load_weights(model, state)
         valid_metrics, bins = validate()
         for k, v in sorted(valid_metrics.items()):
             print(f'{k:<20} {v:.4f}')

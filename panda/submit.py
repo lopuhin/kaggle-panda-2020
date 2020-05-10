@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 
 from .dataset import PandaDataset
 from . import models
+from .utils import load_weights
 
 
 def main():
@@ -52,7 +53,7 @@ def main():
     model = getattr(models, params['model'])(
         head_name=params['head'], pretrained=False)
     model.to(device)
-    model.load_state_dict(state['weights'])
+    load_weights(model, state)
     model.eval()
 
     predictions = []

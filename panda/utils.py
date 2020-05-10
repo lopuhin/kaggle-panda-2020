@@ -77,3 +77,11 @@ class OptimizedRounder:
 
     def predict(self, X):
         return np.digitize(X, self.coef_)
+
+
+def load_weights(model, state):
+    weights = state['weights']
+    if all(key.startswith('module.') for key in weights):
+        for key in list(weights):
+            weights[key[len('module.'):]] = weights.pop(key)
+    model.load_state_dict(weights)
