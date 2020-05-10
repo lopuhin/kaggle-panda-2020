@@ -189,7 +189,7 @@ def run_main(device_id, args):
         report_freq = 5
         running_losses = []
         train_loader = make_loader(df_train, batch_size, training=True)
-        if train_loader.sampler is not None:
+        if args.ddp:
             train_loader.sampler.set_epoch(epoch)
         pbar = tqdm.tqdm(train_loader, dynamic_ncols=True, desc='train',
                          disable=not is_main)
