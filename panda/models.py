@@ -14,10 +14,13 @@ class ResNet(nn.Module):
         super().__init__()
         self.base = base
         self.head = head_cls(
-            in_features=2 * self.base.fc.in_features, out_features=1)
+            in_features=2 * self.get_features_dim(), out_features=1)
         self.avgpool = nn.AdaptiveAvgPool1d(output_size=1)
         self.maxpool = nn.AdaptiveMaxPool1d(output_size=1)
         self.frozen = False
+
+    def get_features_dim(self):
+        return self.base.fc.in_features
     
     def forward(self, x):
         batch_size, n_patches, *patch_shape = x.shape
@@ -170,3 +173,17 @@ def resnet_timm(name: str, head_name: str, pretrained: bool = True):
 
 
 resnet34_timm = partial(resnet_timm, name='resnet34')
+
+
+class MobileNet(ResNet):
+    def get_features_dim(self):
+        return self.base.classifier[1].in_features
+
+    def get_features(self, x):
+        return self.base.features(x)
+
+
+def mobilenet_v2(head_name: str, pretrained: bool = True):
+    base = torchvision.models.mobilenet_v2(pretrained=pretrained)
+    head_cls = globals()[head_name]
+    return MobileNet(base=base, head_cls=head_cls)
