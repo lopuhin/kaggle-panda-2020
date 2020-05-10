@@ -17,6 +17,9 @@ class ResNet(nn.Module):
             in_features=2 * self.base.fc.in_features, out_features=1)
         self.avgpool = nn.AdaptiveAvgPool1d(output_size=1)
         self.maxpool = nn.AdaptiveMaxPool1d(output_size=1)
+        self.attention_u = nn.Parameter(
+            torch.randn(self.base.fc.in_features))
+        self.attention_softmax = nn.Softmax(dim=1)
         self.frozen = False
     
     def forward(self, x):
@@ -24,7 +27,13 @@ class ResNet(nn.Module):
         x = x.reshape((batch_size * n_patches, *patch_shape))
         x = self.get_features(x)
         n_features = x.shape[1]
+        x = x.reshape((batch_size * n_patches, n_features, -1))
+        attention_w = torch.matmul(self.avgpool(x).squeeze(2),
+                                   self.attention_u)
+        attention_w = self.attention_softmax(
+            attention_w.reshape(batch_size, n_patches))
         x = x.reshape((batch_size, n_patches, n_features, -1))
+        x = x * attention_w.unsqueeze(2).unsqueeze(3)
         x = x.transpose(1, 2).reshape((batch_size, n_features, -1))
         x = torch.cat([self.avgpool(x), self.maxpool(x)], dim=1)
         x = torch.flatten(x, 1)
