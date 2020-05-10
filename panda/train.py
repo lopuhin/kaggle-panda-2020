@@ -253,6 +253,9 @@ def run_main(device_id, args):
             oof_predictions.extend(rounder.predict(predictions[valid_ids]))
             oof_targets.extend(targets[valid_ids])
             oof_providers.extend(providers[valid_ids])
+        oof_predictions = np.array(oof_predictions)
+        oof_targets = np.array(oof_targets)
+        oof_providers = np.array(oof_providers)
         metrics = {
             'valid_loss': np.mean(losses),
             'kappa': cohen_kappa_score(
