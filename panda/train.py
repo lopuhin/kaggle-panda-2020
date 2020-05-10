@@ -237,20 +237,29 @@ def run_main(device_id, args):
             predictions.extend(output)
             targets.extend(ys.cpu().numpy())
             image_ids.extend(ids)
+        provider_by_id = dict(
+            zip(df_valid['image_id'], df_valid['data_provider']))
+        providers = np.array([
+            provider_by_id[image_id] for image_id in image_ids])
         predictions = np.array(predictions)
         targets = np.array(targets)
         kfold = StratifiedKFold(args.n_folds, shuffle=True, random_state=42)
-        oof_predictions, oof_targets = [], []
+        oof_predictions, oof_targets, oof_providers = [], [], []
         for train_ids, valid_ids in kfold.split(targets, targets):
             rounder = OptimizedRounder(n_classes=N_CLASSES)
             rounder.fit(predictions[train_ids], targets[train_ids])
             oof_predictions.extend(rounder.predict(predictions[valid_ids]))
             oof_targets.extend(targets[valid_ids])
+            oof_providers.extend(providers[valid_ids])
         metrics = {
             'valid_loss': np.mean(losses),
             'kappa': cohen_kappa_score(
                 oof_targets, oof_predictions, weights='quadratic')
         }
+        for provider in set(oof_providers):
+            mask = oof_providers == provider
+            metrics[f'kappa_{provider}'] = cohen_kappa_score(
+                oof_targets[mask], oof_predictions[mask], weights='quadratic')
         rounder = OptimizedRounder(n_classes=N_CLASSES)
         rounder.fit(predictions, targets)
         bins = rounder.coef_
