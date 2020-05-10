@@ -66,7 +66,6 @@ def run_main(device_id, args):
     is_main = device_id in {0, None}
     n_devices = max(1, args.ddp)
     ddp_rank = device_id
-    device_id = 0
 
     params = vars(args)
     run_root = Path(args.run_root)
@@ -230,7 +229,6 @@ def run_main(device_id, args):
 
         prediction_results = defaultdict(list)
         valid_loader = make_loader(df_valid, args.batch_size, training=False)
-        t0 = time.time()
         for ids, xs, ys in valid_loader:
             with amp.autocast(enabled=amp_enabled):
                 output, loss = forward(xs, ys)
@@ -238,7 +236,6 @@ def run_main(device_id, args):
             prediction_results['predictions'].extend(output)
             prediction_results['targets'].extend(ys.cpu().numpy())
             prediction_results['image_ids'].extend(ids)
-        print('finished predictions', time.time() - t0)
         if args.ddp:
             paths = [run_root / f'.val_{i}.pth' for i in range(args.ddp)]
             if not is_main:
@@ -292,11 +289,8 @@ def run_main(device_id, args):
             load_weights(model.module, state)
         else:
             load_weights(model, state)
-        import time
-        t0 = time.time()
         valid_metrics, bins = validate()
         if is_main:
-            print(time.time() - t0)
             for k, v in sorted(valid_metrics.items()):
                 print(f'{k:<20} {v:.4f}')
             print('bins', bins)
