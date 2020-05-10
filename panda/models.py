@@ -27,11 +27,10 @@ class ResNet(nn.Module):
         x = self.get_features(x)
         n_features = x.shape[1]
         x = x.reshape((batch_size * n_patches, n_features, -1))
-        att = self.attention_w(x.transpose(1, 2)).squeeze(2)
-        att = self.attention_softmax(att.reshape(batch_size, -1))
-        att = att.reshape((batch_size, n_patches, -1)).unsqueeze(2)
+        att = self.attention_w(self.avgpool(x).squeeze(2)).squeeze(1)
+        att = self.attention_softmax(att.reshape(batch_size, n_patches))
         x = x.reshape((batch_size, n_patches, n_features, -1))
-        x = x * att * n_patches
+        x = x * att.unsqueeze(2).unsqueeze(3) * n_patches
         x = x.transpose(1, 2).reshape((batch_size, n_features, -1))
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
