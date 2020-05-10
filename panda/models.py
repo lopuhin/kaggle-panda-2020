@@ -14,7 +14,7 @@ class ResNet(nn.Module):
         super().__init__()
         self.base = base
         self.head = head_cls(
-            in_features=2 * self.get_features_dim(), out_features=1)
+            in_features=self.get_features_dim(), out_features=1)
         self.avgpool = nn.AdaptiveAvgPool1d(output_size=1)
         self.maxpool = nn.AdaptiveMaxPool1d(output_size=1)
         self.frozen = False
@@ -29,7 +29,7 @@ class ResNet(nn.Module):
         n_features = x.shape[1]
         x = x.reshape((batch_size, n_patches, n_features, -1))
         x = x.transpose(1, 2).reshape((batch_size, n_features, -1))
-        x = torch.cat([self.avgpool(x), self.maxpool(x)], dim=1)
+        x = self.avgpool(x)
         x = torch.flatten(x, 1)
         x = self.head(x)
         return x.squeeze(1)
