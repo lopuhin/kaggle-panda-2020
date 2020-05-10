@@ -22,7 +22,7 @@ class ResNet(nn.Module):
     def get_features_dim(self):
         return self.base.fc.in_features
     
-    def forward(self, x):
+    def forward(self, provider, x):
         batch_size, n_patches, *patch_shape = x.shape
         x = x.reshape((batch_size * n_patches, *patch_shape))
         x = self.get_features(x)
@@ -31,7 +31,7 @@ class ResNet(nn.Module):
         x = x.transpose(1, 2).reshape((batch_size, n_features, -1))
         x = torch.cat([self.avgpool(x), self.maxpool(x)], dim=1)
         x = torch.flatten(x, 1)
-        x = self.head(x)
+        x = self.head(provider, x)
         return x.squeeze(1)
 
     def get_features(self, x):
@@ -59,18 +59,6 @@ class ResNet(nn.Module):
                     m.eval()
 
 
-class HeadFC(nn.Module):
-    def __init__(self, in_features: int, out_features: int):
-        super().__init__()
-        self.fc = nn.Linear(
-            in_features=in_features,
-            out_features=out_features,
-            bias=True)
-
-    def forward(self, x):
-        return self.fc(x)
-
-
 class HeadFC2(nn.Module):
     def __init__(
             self, in_features: int, out_features: int,
@@ -83,15 +71,16 @@ class HeadFC2(nn.Module):
         self.gn = nn.GroupNorm(32, hidden_size)
         self.dropout = nn.Dropout(p=0.5)
         self.fc_2 = nn.Linear(
-            in_features=hidden_size,
+            in_features=hidden_size + 1,
             out_features=out_features,
             bias=True)
 
-    def forward(self, x):
+    def forward(self, provider, x):
         # x = linear_ws(self.fc, x)
         x = self.fc(x)
         x = self.gn(x)
         x = F.relu(x, inplace=True)
+        x = torch.cat([x, provider.unsqueeze(1)], 1)
         x = self.dropout(x)
         x = self.fc_2(x)
         return x

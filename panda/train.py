@@ -169,10 +169,11 @@ def run_main(device_id, args):
         for p in run_root.glob('patch-*.jpeg'):
             p.unlink()
 
-    def forward(xs, ys):
+    def forward(ps, xs, ys):
+        ps = ps.to(device, non_blocking=True)
         xs = xs.to(device, non_blocking=True)
         ys = ys.to(device, non_blocking=True)
-        output = model(xs)
+        output = model(ps, xs)
         loss = criterion(output, ys)
         output = output.detach().cpu().numpy()
         return output, loss
@@ -191,11 +192,11 @@ def run_main(device_id, args):
         pbar = tqdm.tqdm(train_loader, dynamic_ncols=True, desc='train',
                          disable=not is_main)
         optimizer.zero_grad()
-        for i, (ids, xs, ys) in enumerate(pbar):
+        for i, (ids, ps, xs, ys) in enumerate(pbar):
             step += len(ids) * n_devices
             save_patches(xs)
             with amp.autocast(enabled=amp_enabled):
-                _, loss = forward(xs, ys)
+                _, loss = forward(ps, xs, ys)
             scaler.scale(loss).backward()
             if (i + 1) % grad_acc == 0:
                 scaler.step(optimizer)
@@ -229,9 +230,9 @@ def run_main(device_id, args):
 
         prediction_results = defaultdict(list)
         valid_loader = make_loader(df_valid, args.batch_size, training=False)
-        for ids, xs, ys in valid_loader:
+        for ids, ps, xs, ys in valid_loader:
             with amp.autocast(enabled=amp_enabled):
-                output, loss = forward(xs, ys)
+                output, loss = forward(ps, xs, ys)
             prediction_results['losses'].append(float(loss))
             prediction_results['predictions'].extend(output)
             prediction_results['targets'].extend(ys.cpu().numpy())
