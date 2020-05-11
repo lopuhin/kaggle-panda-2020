@@ -79,7 +79,7 @@ def run_main(device_id, args):
             (run_root / 'params.json').write_text(
                 json.dumps(params, indent=4, sort_keys=True))
 
-    df_train, df_valid = train_valid_df()
+    df_train, df_valid = train_valid_df(args.fold, args.n_folds)
     root = Path('data/train_images')
 
     def make_loader(df, batch_size, training):
