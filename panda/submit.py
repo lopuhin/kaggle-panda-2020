@@ -1,4 +1,5 @@
 import argparse
+import json
 from pathlib import Path
 
 import numpy as np
@@ -84,11 +85,15 @@ def main():
     df.to_csv('submission.csv', index=False)
 
     if args.output:
-        # TODO save bins
-        by_image_id = dict(zip(image_ids, predictions))
-        df['isup_grade'] = df['image_id'].apply(lambda x: by_image_id[x])
-        df.to_csv(args.output, index=False)
-
+        output = {
+            'image_ids': image_ids,
+            'predictions': list(map(float, predictions)),
+            'bins': list(map(float, state['bins'])),
+            'params': state['params'],
+            'metrics': state['metrics'],
+        }
+        Path(args.output).write_text(
+            json.dumps(output, indent=4, sort_keys=True))
 
 
 if __name__ == '__main__':
