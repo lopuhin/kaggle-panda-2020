@@ -301,8 +301,8 @@ def run_main(device_id, args):
                 batch_size //= 2
                 grad_acc *= 2
         train_epoch(epoch)
+        valid_metrics, bins = validate()
         if is_main:
-            valid_metrics, bins = validate()
             epoch_pbar.set_postfix(
                 {k: f'{v:.4f}' for k, v in valid_metrics.items()})
             json_log_plots.write_event(run_root, step, **valid_metrics)
