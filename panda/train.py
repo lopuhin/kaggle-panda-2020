@@ -7,10 +7,9 @@ import random
 
 import json_log_plots
 import numpy as np
-import pandas as pd
 from PIL import Image
-from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import cohen_kappa_score
+from sklearn.model_selection import StratifiedKFold
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
@@ -22,7 +21,7 @@ import tqdm
 
 from .dataset import PandaDataset, one_from_torch, N_CLASSES
 from . import models
-from .utils import OptimizedRounder, load_weights
+from .utils import OptimizedRounder, load_weights, train_valid_df
 
 
 def main():
@@ -80,13 +79,7 @@ def run_main(device_id, args):
             (run_root / 'params.json').write_text(
                 json.dumps(params, indent=4, sort_keys=True))
 
-    df = pd.read_csv('data/train.csv')
-    kfold = StratifiedKFold(args.n_folds, shuffle=True, random_state=42)
-    for i, (train_ids, valid_ids) in enumerate(kfold.split(df, df.isup_grade)):
-        if i == args.fold:
-            df_train = df.iloc[train_ids]
-            df_valid = df.iloc[valid_ids]
-
+    df_train, df_valid = train_valid_df()
     root = Path('data/train_images')
 
     def make_loader(df, batch_size, training):

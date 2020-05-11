@@ -2,8 +2,10 @@ from functools import partial
 
 import cv2
 import numpy as np
+import pandas as pd
 import scipy as sp
 from sklearn import metrics
+from sklearn.model_selection import StratifiedKFold
 
 
 def crop_white(image: np.ndarray, value: int = 255) -> np.ndarray:
@@ -85,3 +87,13 @@ def load_weights(model, state):
         for key in list(weights):
             weights[key[len('module.'):]] = weights.pop(key)
     model.load_state_dict(weights)
+
+
+def train_valid_df(fold: int, n_folds: int):
+    df = pd.read_csv('data/train.csv')
+    kfold = StratifiedKFold(n_folds, shuffle=True, random_state=42)
+    for i, (train_ids, valid_ids) in enumerate(kfold.split(df, df.isup_grade)):
+        if i == fold:
+            df_train = df.iloc[train_ids]
+            df_valid = df.iloc[valid_ids]
+            return df_train, df_valid

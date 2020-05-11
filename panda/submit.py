@@ -5,10 +5,11 @@ import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader
+import tqdm
 
 from .dataset import PandaDataset
 from . import models
-from .utils import load_weights
+from .utils import load_weights, train_valid_df
 
 
 def main():
@@ -19,15 +20,24 @@ def main():
     arg('--workers', type=int, default=4)
     arg('--device', type=str, default='cuda')
     arg('--batch-size', type=int)
+    arg('--output')
+    arg('--fold', type=int)
+    arg('--n-folds', type=int, default=5)
     args = parser.parse_args()
 
     root = Path(args.data_root)
-    df = pd.read_csv(root / 'sample_submission.csv')
-    image_root = root / 'test_images'
-    if not image_root.exists():
-        df.to_csv('submission.csv', index=False)
-        return
+    is_train = args.fold is not None
+    if is_train:
+        image_root = root / 'train_images'
+        _, df = train_valid_df(args.fold, args.n_folds)
+    else:
+        df = pd.read_csv(root / 'sample_submission.csv')
+        image_root = root / 'test_images'
+        if not image_root.exists():
+            df.to_csv('submission.csv', index=False)
+            return
 
+    # TODO multiple models
     state = torch.load(args.model_path, map_location='cpu')
     params = state['params']
     if args.batch_size:
@@ -59,16 +69,26 @@ def main():
     predictions = []
     image_ids = []
     with torch.no_grad():
+        if is_train:
+            loader = tqdm.tqdm(loader)
         for ids, xs, ys in loader:
             xs = xs.to(device)
             ys = ys.to(device)
             output = model(xs).cpu().numpy()
-            predictions.extend(np.digitize(output, state['bins']))
+            predictions.extend(output)
             image_ids.extend(ids)
 
-    by_image_id = dict(zip(image_ids, predictions))
+    binned_predictions = np.digitize(predictions, state['bins'])
+    by_image_id = dict(zip(image_ids, binned_predictions))
     df['isup_grade'] = df['image_id'].apply(lambda x: by_image_id[x])
     df.to_csv('submission.csv', index=False)
+
+    if args.output:
+        # TODO save bins
+        by_image_id = dict(zip(image_ids, predictions))
+        df['isup_grade'] = df['image_id'].apply(lambda x: by_image_id[x])
+        df.to_csv(args.output, index=False)
+
 
 
 if __name__ == '__main__':
