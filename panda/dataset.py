@@ -2,6 +2,8 @@ import io
 import random
 from pathlib import Path
 
+from albumentations.augmentations.functional import(
+    brightness_contrast_adjust, shift_hsv)
 import cv2
 try:
     import jpeg4py
@@ -64,6 +66,7 @@ class PandaDataset(Dataset):
             image = random_rot90(image)
             # image = random_rotate(image)
             image = random_pad(image, self.patch_size)
+            image = color_aug(image)
         patches = make_patches(
             image, n=self.n_patches, size=self.patch_size,
             randomize=self.training)
@@ -119,6 +122,19 @@ def random_pad(image: np.ndarray, size: int) -> np.ndarray:
         image,
         [[pad0, size - pad0], [pad1, size - pad1], [0, 0]],
         constant_values=255)
+
+
+def color_aug(image: np.ndarray) -> np.ndarray:
+    if random.random() > 0.5:
+        image = brightness_contrast_adjust(
+            image,
+            1 + random.uniform(-0.1, 0.1),
+            random.uniform(-0.1, 0.1),
+            True)
+    if random.random() > 0.5:
+        image = shift_hsv(
+            image, random.uniform(-5, 5), 0, random.uniform(-10, 10))
+    return image
 
 
 def make_patches(

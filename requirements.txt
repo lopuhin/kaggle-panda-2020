@@ -1,3 +1,4 @@
+albumentations==0.4.5
 imagecodecs==2020.2.18
 jpeg4py==0.1.4
 json-log-plots==0.0.1
