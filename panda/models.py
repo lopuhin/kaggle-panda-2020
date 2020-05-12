@@ -138,9 +138,13 @@ resnet50_gnws = partial(resnet_gnws, name='resnet50')
 
 
 def resnet_swsl(name: str, head_name: str, pretrained: bool = True):
-    # TODO kaggle support
-    base = torch.hub.load(
-        'facebookresearch/semi-supervised-ImageNet1K-models', name)
+    if pretrained:
+        base = torch.hub.load(
+            'facebookresearch/semi-supervised-ImageNet1K-models', name)
+    elif name == 'resnet50_swsl':
+        base = torchvision.models.resnet50(pretrained=False)
+    else:
+        raise ValueError(f'model "{name}" not supported yet')
     head_cls = globals()[head_name]
     return ResNet(base=base, head_cls=head_cls)
 
