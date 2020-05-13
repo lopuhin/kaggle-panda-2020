@@ -6,7 +6,7 @@ from torch import nn
 from torch.nn import functional as F
 import torchvision.models
 
-from . import gnws_resnet
+from . import gnws_resnet, gnws_resnext
 
 
 class ResNet(nn.Module):
@@ -119,22 +119,48 @@ resnet34 = partial(resnet, name='resnet34')
 resnet50 = partial(resnet, name='resnet50')
 
 
+class ResNeXtGNWS(ResNet):
+    def get_features(self, x):
+        base = self.base
+        x = base.conv1(x)
+        x = base.bn1(x)
+        x = base.relu(x)
+        x = base.maxpool1(x)
+
+        x = base.layer1(x)
+        x = base.layer2(x)
+        x = base.layer3(x)
+        x = base.layer4(x)
+        return x
+
+
 def resnet_gnws(name: str, head_name: str, pretrained: bool = True):
     """
     https://github.com/joe-siyuan-qiao/pytorch-classification
     """
-    base = getattr(gnws_resnet, name)()
+    if name.startswith('resnext'):
+        base = getattr(gnws_resnext, name)()
+        cls = ResNeXtGNWS
+    else:
+        cls = ResNet
+        base = getattr(gnws_resnet, name)()
     if pretrained:
         weights_name = {
             'resnet50': 'R-50-GN-WS.pth.tar',
+            'resnext50': 'X-50-GN-WS.pth.tar',
+            'resnet101': 'R-101-GN-WS.pth.tar',
+            'resnext101': 'X-101-GN-WS.pth.tar',
         }[name]
         state = torch.load(Path('data') / weights_name, map_location='cpu')
         base.load_state_dict({k.split('.', 1)[1]: v for k, v in state.items()})
     head_cls = globals()[head_name]
-    return ResNet(base=base, head_cls=head_cls)
+    return cls(base=base, head_cls=head_cls)
 
 
 resnet50_gnws = partial(resnet_gnws, name='resnet50')
+resnext50_gnws = partial(resnet_gnws, name='resnext50')
+resnet101_gnws = partial(resnet_gnws, name='resnet101')
+resnext101_gnws = partial(resnet_gnws, name='resnext101')
 
 
 def resnet_swsl(name: str, head_name: str, pretrained: bool = True):
