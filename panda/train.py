@@ -332,8 +332,8 @@ def run_main(device_id, args):
             epoch_pbar.set_postfix(
                 {k: f'{v:.4f}' for k, v in valid_metrics.items()})
             json_log_plots.write_event(run_root, step, **valid_metrics)
-            if valid_metrics['kappa'] > best_kappa:
-                best_kappa = valid_metrics['kappa']
+            if valid_metrics['kappa_clf'] > best_kappa:
+                best_kappa = valid_metrics['kappa_clf']
                 state = {
                     'weights': model.state_dict(),
                     'bins': bins,
