@@ -30,6 +30,7 @@ class PandaDataset(Dataset):
             scale: float,
             level: int,
             training: bool,
+            tta: bool,
             ):
         self.df = df
         self.root = root
@@ -38,6 +39,7 @@ class PandaDataset(Dataset):
         self.scale = scale
         self.level = level
         self.training = training
+        self.tta = tta
 
     def __len__(self):
         return len(self.df)
@@ -59,10 +61,10 @@ class PandaDataset(Dataset):
                 image, (int(image.shape[1] * self.scale),
                         int(image.shape[0] * self.scale)),
                 interpolation=cv2.INTER_AREA)
-        if self.training:
+        if self.training or self.tta:
             image = random_flip(image)
             image = random_rot90(image)
-            # image = random_rotate(image)
+            # if self.training: image = random_rotate(image)
             image = random_pad(image, self.patch_size)
         patches = make_patches(
             image, n=self.n_patches, size=self.patch_size,

@@ -45,6 +45,7 @@ def main():
     arg('--head', default='HeadFC2')
     arg('--device', default='cuda')
     arg('--validation', action='store_true')
+    arg('--tta', type=int)
     arg('--save-patches', action='store_true')
     arg('--lr-scheduler', default='cosine')
     arg('--amp', type=int, default=1)
@@ -82,7 +83,7 @@ def run_main(device_id, args):
     df_train, df_valid = train_valid_df(args.fold, args.n_folds)
     root = Path('data/train_images')
 
-    def make_loader(df, batch_size, training):
+    def make_loader(df, batch_size, training, tta):
         dataset = PandaDataset(
             root=root,
             df=df,
@@ -92,6 +93,7 @@ def run_main(device_id, args):
             scale=args.scale,
             level=args.level,
             training=training,
+            tta=tta,
         )
         sampler = None
         if args.ddp:
@@ -167,7 +169,6 @@ def run_main(device_id, args):
         ys = ys.to(device, non_blocking=True)
         output = model(xs)
         loss = criterion(output, ys)
-        output = output.detach().cpu().numpy()
         return output, loss
 
     grad_acc = args.grad_acc
@@ -221,14 +222,22 @@ def run_main(device_id, args):
         model.eval()
 
         prediction_results = defaultdict(list)
-        valid_loader = make_loader(df_valid, args.batch_size, training=False)
-        for ids, xs, ys in valid_loader:
-            with amp.autocast(enabled=amp_enabled):
-                output, loss = forward(xs, ys)
-            prediction_results['losses'].append(float(loss))
-            prediction_results['predictions'].extend(output)
-            prediction_results['targets'].extend(ys.cpu().numpy())
-            prediction_results['image_ids'].extend(ids)
+        for n_tta in range(args.tta or 1):
+            valid_loader = make_loader(
+                df_valid, args.batch_size, training=False, tta=bool(n_tta))
+            for ids, xs, ys in valid_loader:
+                with amp.autocast(enabled=amp_enabled):
+                    output, loss = forward(xs, ys)
+                if n_tta == 0:
+                    prediction_results['image_ids'].extend(ids)
+                    prediction_results['targets'].extend(ys.cpu().numpy())
+                    prediction_results['losses'].append(float(loss))
+                prediction_results['predictions'].extend(
+                    output.cpu().float().numpy())
+        if args.tta:
+            prediction_results['predictions'] = list(
+                np.array(prediction_results['predictions'])
+                .reshape((args.tta, -1)).mean(0))
         if args.ddp:
             paths = [run_root / f'.val_{i}.pth' for i in range(args.ddp)]
             if not is_main:

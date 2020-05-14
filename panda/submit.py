@@ -52,6 +52,7 @@ def main():
         scale=params['scale'],
         level=params['level'],
         training=False,
+        tta=False,  # TODO
     )
     loader = DataLoader(
         dataset,
