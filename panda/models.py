@@ -195,6 +195,14 @@ class ResNetTimm(ResNet):
         return x
 
 
+class TResNetTimm(ResNet):
+    def get_features(self, x):
+        return self.base.forward_features(x)
+
+    def get_features_dim(self):
+        return self.base.head.fc.in_features
+
+
 def resnet_timm(name: str, head_name: str, pretrained: bool = True):
     import timm
     base = timm.create_model(name, pretrained=pretrained)
@@ -203,3 +211,14 @@ def resnet_timm(name: str, head_name: str, pretrained: bool = True):
 
 
 resnet34_timm = partial(resnet_timm, name='resnet34')
+
+
+def tresnet_timm(name: str, head_name: str, pretrained: bool = True):
+    import timm
+    base = timm.create_model(name, pretrained=pretrained)
+    head_cls = globals()[head_name]
+    return TResNetTimm(base=base, head_cls=head_cls)
+
+
+tresnet_m = partial(tresnet_timm, name='tresnet_m')
+tresnet_l = partial(tresnet_timm, name='tresnet_l')
