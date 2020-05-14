@@ -21,7 +21,8 @@ import tqdm
 
 from .dataset import PandaDataset, one_from_torch, N_CLASSES
 from . import models
-from .utils import OptimizedRounder, load_weights, train_valid_df
+from .utils import (
+    OptimizedRounder, OptimizedClfRounder, load_weights, train_valid_df)
 
 
 def main():
@@ -274,11 +275,15 @@ def run_main(device_id, args):
         for train_ids, valid_ids in kfold.split(targets, targets):
             oof_targets.extend(targets[valid_ids])
             oof_providers.extend(providers[valid_ids])
-            oof_predictions_clf.extend(predictions_clf[valid_ids].argmax(1))
-            rounder = OptimizedRounder(n_classes=N_CLASSES)
-            rounder.fit(predictions_reg[train_ids], targets[train_ids])
+            # oof_predictions_clf.extend(predictions_clf[valid_ids].argmax(1))
+            rounder_clf = OptimizedClfRounder(n_classes=N_CLASSES)
+            rounder_clf.fit(predictions_clf[train_ids], targets[train_ids])
+            oof_predictions_clf.extend(
+                rounder_clf.predict(predictions_clf[valid_ids]))
+            rounder_reg = OptimizedRounder(n_classes=N_CLASSES)
+            rounder_reg.fit(predictions_reg[train_ids], targets[train_ids])
             oof_predictions_reg.extend(
-                rounder.predict(predictions_reg[valid_ids]))
+                rounder_reg.predict(predictions_reg[valid_ids]))
         oof_predictions_clf = np.array(oof_predictions_clf)
         oof_predictions_reg = np.array(oof_predictions_reg)
         oof_targets = np.array(oof_targets)

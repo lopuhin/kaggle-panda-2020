@@ -81,6 +81,26 @@ class OptimizedRounder:
         return np.digitize(X, self.coef_)
 
 
+class OptimizedClfRounder:
+    def __init__(self, n_classes: int):
+        self.n_classes = n_classes
+        self.coef_ = None
+
+    def _kappa_loss(self, coef, X, y):
+        X_p = (X + coef[None, :]).argmax(1)
+        ll = metrics.cohen_kappa_score(y, X_p, weights='quadratic')
+        return -ll
+
+    def fit(self, X, y):
+        loss_partial = partial(self._kappa_loss, X=X, y=y)
+        initial_coef = np.zeros(self.n_classes)
+        self.coef_ = sp.optimize.minimize(
+            loss_partial, initial_coef, method='nelder-mead')['x']
+
+    def predict(self, X):
+        return (X + self.coef_[None, :]).argmax(1)
+
+
 def load_weights(model, state):
     weights = state['weights']
     if all(key.startswith('module.') for key in weights):
