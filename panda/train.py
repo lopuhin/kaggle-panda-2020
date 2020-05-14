@@ -264,32 +264,40 @@ def run_main(device_id, args):
         providers = np.array([
             provider_by_id[image_id]
             for image_id in prediction_results['image_ids']])
-        # TODO support clf
-        predictions = np.array(prediction_results['predictions_reg'])
+        predictions_clf = np.array(prediction_results['predictions_clf'])
+        predictions_reg = np.array(prediction_results['predictions_reg'])
         targets = np.array(prediction_results['targets'])
 
         kfold = StratifiedKFold(args.n_folds, shuffle=True, random_state=42)
-        oof_predictions, oof_targets, oof_providers = [], [], []
+        oof_predictions_reg, oof_predictions_clf = [], []
+        oof_targets, oof_providers = [], []
         for train_ids, valid_ids in kfold.split(targets, targets):
-            rounder = OptimizedRounder(n_classes=N_CLASSES)
-            rounder.fit(predictions[train_ids], targets[train_ids])
-            oof_predictions.extend(rounder.predict(predictions[valid_ids]))
             oof_targets.extend(targets[valid_ids])
             oof_providers.extend(providers[valid_ids])
-        oof_predictions = np.array(oof_predictions)
+            oof_predictions_clf.extend(predictions_clf[valid_ids].argmax(1))
+            rounder = OptimizedRounder(n_classes=N_CLASSES)
+            rounder.fit(predictions_reg[train_ids], targets[train_ids])
+            oof_predictions_reg.extend(
+                rounder.predict(predictions_reg[valid_ids]))
+        oof_predictions_clf = np.array(oof_predictions_clf)
+        oof_predictions_reg = np.array(oof_predictions_reg)
         oof_targets = np.array(oof_targets)
         oof_providers = np.array(oof_providers)
         metrics = {
             'valid_loss': np.mean(prediction_results['losses']),
-            'kappa': cohen_kappa_score(
-                oof_targets, oof_predictions, weights='quadratic')
+            'kappa_clf': cohen_kappa_score(
+                oof_targets, oof_predictions_clf, weights='quadratic'),
+            'kappa_reg': cohen_kappa_score(
+                oof_targets, oof_predictions_reg, weights='quadratic'),
         }
         for provider in set(oof_providers):
             mask = oof_providers == provider
-            metrics[f'kappa_{provider}'] = cohen_kappa_score(
-                oof_targets[mask], oof_predictions[mask], weights='quadratic')
+            metrics[f'kappa_{provider}_clf'] = cohen_kappa_score(
+                oof_targets[mask], oof_predictions_clf[mask], weights='quadratic')
+            metrics[f'kappa_{provider}_reg'] = cohen_kappa_score(
+                oof_targets[mask], oof_predictions_reg[mask], weights='quadratic')
         rounder = OptimizedRounder(n_classes=N_CLASSES)
-        rounder.fit(predictions, targets)
+        rounder.fit(predictions_reg, targets)
         bins = rounder.coef_
         return metrics, bins
 
