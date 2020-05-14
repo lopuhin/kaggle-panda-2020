@@ -58,22 +58,8 @@ class ResNet(nn.Module):
                     m.eval()
 
 
-class HeadFC(nn.Module):
-    def __init__(self, in_features: int, out_features: int):
-        super().__init__()
-        self.fc = nn.Linear(
-            in_features=in_features,
-            out_features=out_features,
-            bias=True)
-
-    def forward(self, x):
-        return self.fc(x)
-
-
 class HeadFC2(nn.Module):
-    def __init__(
-            self, in_features: int, out_features: int,
-            hidden_size: int = 512):
+    def __init__(self, in_features: int, hidden_size: int = 512):
         super().__init__()
         self.fc = nn.Linear(
             in_features=in_features,
@@ -81,10 +67,10 @@ class HeadFC2(nn.Module):
             bias=True)
         self.gn = nn.GroupNorm(32, hidden_size)
         self.dropout = nn.Dropout(p=0.5)
-        self.fc_2 = nn.Linear(
-            in_features=hidden_size,
-            out_features=out_features,
-            bias=True)
+        self.fc_clf = nn.Linear(
+            in_features=hidden_size, out_features=N_CLASSES, bias=True)
+        self.fc_reg = nn.Linear(
+            in_features=hidden_size, out_features=1, bias=True)
 
     def forward(self, x):
         # x = linear_ws(self.fc, x)
@@ -92,8 +78,9 @@ class HeadFC2(nn.Module):
         x = self.gn(x)
         x = F.relu(x, inplace=True)
         x = self.dropout(x)
-        x = self.fc_2(x)
-        return x
+        x_clf = self.fc_clf(x)
+        x_reg = self.fc_reg(x).squeeze(1)
+        return x_clf, x_reg
 
 
 def linear_ws(layer, x):

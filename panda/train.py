@@ -54,6 +54,7 @@ def main():
     arg('--benchmark', type=int, default=1)
     arg('--optimizer', default='adam')
     arg('--wd', type=float, default=0)
+    arg('--reg-weight', type=float, default=2)
     args = parser.parse_args()
 
     if args.ddp:
@@ -121,7 +122,8 @@ def run_main(device_id, args):
             model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.wd)
     else:
         raise ValueError(f'unknown optimizer {args.optimizer}')
-    criterion = nn.SmoothL1Loss()
+    criterion_clf = nn.CrossEntropyLoss()
+    criterion_reg = nn.SmoothL1Loss()
     amp_enabled = bool(args.amp)
     scaler = amp.GradScaler(enabled=amp_enabled)
     step = 0
@@ -167,9 +169,12 @@ def run_main(device_id, args):
     def forward(xs, ys):
         xs = xs.to(device, non_blocking=True)
         ys = ys.to(device, non_blocking=True)
-        output = model(xs)
-        loss = criterion(output, ys)
-        return output, loss
+        output_clf, output_reg = model(xs)
+        loss = criterion_clf(output_clf, ys)
+        if args.reg_weight:
+            loss = loss + args.reg_weight * criterion_reg(output_reg, ys.float())
+            loss = loss / (1 + args.reg_weight)
+        return (output_clf, output_reg), loss
 
     grad_acc = args.grad_acc
     batch_size = args.batch_size
@@ -228,14 +233,16 @@ def run_main(device_id, args):
                 df_valid, args.batch_size, training=False, tta=bool(n_tta))
             for ids, xs, ys in valid_loader:
                 with amp.autocast(enabled=amp_enabled):
-                    output, loss = forward(xs, ys)
+                    (output_clf, output_reg), loss = forward(xs, ys)
                 if n_tta == 0:
                     prediction_results['image_ids'].extend(ids)
                     prediction_results['targets'].extend(ys.cpu().numpy())
                     prediction_results['losses'].append(float(loss))
-                prediction_results['predictions'].extend(
-                    output.cpu().float().numpy())
-        if args.tta:
+                prediction_results['predictions_clf'].extend(
+                    output_clf.cpu().float().numpy())
+                prediction_results['predictions_reg'].extend(
+                    output_reg.cpu().float().numpy())
+        if args.tta:  # TODO
             prediction_results['predictions'] = list(
                 np.array(prediction_results['predictions'])
                 .reshape((args.tta, -1)).mean(0))
@@ -257,7 +264,8 @@ def run_main(device_id, args):
         providers = np.array([
             provider_by_id[image_id]
             for image_id in prediction_results['image_ids']])
-        predictions = np.array(prediction_results['predictions'])
+        # TODO support clf
+        predictions = np.array(prediction_results['predictions_reg'])
         targets = np.array(prediction_results['targets'])
 
         kfold = StratifiedKFold(args.n_folds, shuffle=True, random_state=42)
