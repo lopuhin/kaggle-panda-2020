@@ -7,14 +7,14 @@ from torch.nn import functional as F
 import torchvision.models
 
 from . import gnws_resnet, gnws_resnext
+from .dataset import N_CLASSES
 
 
 class ResNet(nn.Module):
     def __init__(self, base: nn.Module, head_cls):
         super().__init__()
         self.base = base
-        self.head = head_cls(
-            in_features=self.get_features_dim(), out_features=1)
+        self.head = head_cls(in_features=self.get_features_dim())
         self.avgpool = nn.AdaptiveAvgPool1d(output_size=1)
         self.maxpool = nn.AdaptiveMaxPool1d(output_size=1)
         self.frozen = False
@@ -31,8 +31,7 @@ class ResNet(nn.Module):
         x = x.transpose(1, 2).reshape((batch_size, n_features, -1))
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
-        x = self.head(x)
-        return x.squeeze(1)
+        return self.head(x)
 
     def get_features(self, x):
         base = self.base
