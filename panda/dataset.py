@@ -1,3 +1,4 @@
+import io
 import random
 from pathlib import Path
 
@@ -6,6 +7,7 @@ try:
     import jpeg4py
 except ImportError:
     pass  # not needed on kaggle
+from PIL import Image
 import pandas as pd
 import numpy as np
 import skimage.io
@@ -28,6 +30,7 @@ class PandaDataset(Dataset):
             scale: float,
             level: int,
             training: bool,
+            tta: bool,
             ):
         self.df = df
         self.root = root
@@ -36,6 +39,7 @@ class PandaDataset(Dataset):
         self.scale = scale
         self.level = level
         self.training = training
+        self.tta = tta
 
     def __len__(self):
         return len(self.df)
@@ -48,15 +52,19 @@ class PandaDataset(Dataset):
         else:
             image = crop_white(skimage.io.MultiImage(
                 str(self.root / f'{item.image_id}.tiff'))[self.level])
+            # use PIL as jpeg4py is not available on kaggle
+            buffer = io.BytesIO()
+            Image.fromarray(image).save(buffer, format='jpeg', quality=90)
+            image = np.array(Image.open(buffer))
         if self.scale != 1:
             image = cv2.resize(
                 image, (int(image.shape[1] * self.scale),
                         int(image.shape[0] * self.scale)),
                 interpolation=cv2.INTER_AREA)
-        if self.training:
+        if self.training or self.tta:
             image = random_flip(image)
             image = random_rot90(image)
-            # image = random_rotate(image)
+            # if self.training: image = random_rotate(image)
             image = random_pad(image, self.patch_size)
         patches = make_patches(
             image, n=self.n_patches, size=self.patch_size,

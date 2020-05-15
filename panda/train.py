@@ -7,10 +7,9 @@ import random
 
 import json_log_plots
 import numpy as np
-import pandas as pd
 from PIL import Image
-from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import cohen_kappa_score
+from sklearn.model_selection import StratifiedKFold
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
@@ -22,7 +21,7 @@ import tqdm
 
 from .dataset import PandaDataset, one_from_torch, N_CLASSES
 from . import models
-from .utils import OptimizedRounder, load_weights
+from .utils import OptimizedRounder, load_weights, train_valid_df
 
 
 def main():
@@ -46,6 +45,7 @@ def main():
     arg('--head', default='HeadFC2')
     arg('--device', default='cuda')
     arg('--validation', action='store_true')
+    arg('--tta', type=int)
     arg('--save-patches', action='store_true')
     arg('--lr-scheduler', default='cosine')
     arg('--amp', type=int, default=1)
@@ -80,16 +80,10 @@ def run_main(device_id, args):
             (run_root / 'params.json').write_text(
                 json.dumps(params, indent=4, sort_keys=True))
 
-    df = pd.read_csv('data/train.csv')
-    kfold = StratifiedKFold(args.n_folds, shuffle=True, random_state=42)
-    for i, (train_ids, valid_ids) in enumerate(kfold.split(df, df.isup_grade)):
-        if i == args.fold:
-            df_train = df.iloc[train_ids]
-            df_valid = df.iloc[valid_ids]
-
+    df_train, df_valid = train_valid_df(args.fold, args.n_folds)
     root = Path('data/train_images')
 
-    def make_loader(df, batch_size, training):
+    def make_loader(df, batch_size, training, tta):
         dataset = PandaDataset(
             root=root,
             df=df,
@@ -99,6 +93,7 @@ def run_main(device_id, args):
             scale=args.scale,
             level=args.level,
             training=training,
+            tta=tta,
         )
         sampler = None
         if args.ddp:
@@ -174,7 +169,6 @@ def run_main(device_id, args):
         ys = ys.to(device, non_blocking=True)
         output = model(xs)
         loss = criterion(output, ys)
-        output = output.detach().cpu().numpy()
         return output, loss
 
     grad_acc = args.grad_acc
@@ -185,7 +179,8 @@ def run_main(device_id, args):
         model.train()
         report_freq = 5
         running_losses = []
-        train_loader = make_loader(df_train, batch_size, training=True)
+        train_loader = make_loader(
+            df_train, batch_size, training=True, tta=False)
         if args.ddp:
             train_loader.sampler.set_epoch(epoch)
         pbar = tqdm.tqdm(train_loader, dynamic_ncols=True, desc='train',
@@ -228,14 +223,23 @@ def run_main(device_id, args):
         model.eval()
 
         prediction_results = defaultdict(list)
-        valid_loader = make_loader(df_valid, args.batch_size, training=False)
-        for ids, xs, ys in valid_loader:
-            with amp.autocast(enabled=amp_enabled):
-                output, loss = forward(xs, ys)
-            prediction_results['losses'].append(float(loss))
-            prediction_results['predictions'].extend(output)
-            prediction_results['targets'].extend(ys.cpu().numpy())
-            prediction_results['image_ids'].extend(ids)
+        for n_tta in range(args.tta or 1):
+            valid_loader = make_loader(
+                df_valid, args.batch_size, training=False, tta=bool(n_tta))
+            for ids, xs, ys in tqdm.tqdm(
+                    valid_loader, desc='validation', dynamic_ncols=True):
+                with amp.autocast(enabled=amp_enabled):
+                    output, loss = forward(xs, ys)
+                if n_tta == 0:
+                    prediction_results['image_ids'].extend(ids)
+                    prediction_results['targets'].extend(ys.cpu().numpy())
+                    prediction_results['losses'].append(float(loss))
+                prediction_results['predictions'].extend(
+                    output.cpu().float().numpy())
+        if args.tta:
+            prediction_results['predictions'] = list(
+                np.array(prediction_results['predictions'])
+                .reshape((args.tta, -1)).mean(0))
         if args.ddp:
             paths = [run_root / f'.val_{i}.pth' for i in range(args.ddp)]
             if not is_main:
@@ -308,8 +312,8 @@ def run_main(device_id, args):
                 batch_size //= 2
                 grad_acc *= 2
         train_epoch(epoch)
+        valid_metrics, bins = validate()
         if is_main:
-            valid_metrics, bins = validate()
             epoch_pbar.set_postfix(
                 {k: f'{v:.4f}' for k, v in valid_metrics.items()})
             json_log_plots.write_event(run_root, step, **valid_metrics)

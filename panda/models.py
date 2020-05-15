@@ -6,7 +6,7 @@ from torch import nn
 from torch.nn import functional as F
 import torchvision.models
 
-from . import gnws_resnet
+from . import gnws_resnet, gnws_resnext
 
 
 class ResNet(nn.Module):
@@ -14,12 +14,15 @@ class ResNet(nn.Module):
         super().__init__()
         self.base = base
         self.head = head_cls(
-            in_features=self.base.fc.in_features, out_features=1)
+            in_features=self.get_features_dim(), out_features=1)
         self.avgpool = nn.AdaptiveAvgPool1d(output_size=1)
         self.maxpool = nn.AdaptiveMaxPool1d(output_size=1)
         self.attention_w = nn.Linear(self.base.fc.in_features, 1, bias=False)
         self.attention_softmax = nn.Softmax(dim=1)
         self.frozen = False
+
+    def get_features_dim(self):
+        return self.base.fc.in_features
     
     def forward(self, x):
         batch_size, n_patches, *patch_shape = x.shape
@@ -122,28 +125,58 @@ resnet34 = partial(resnet, name='resnet34')
 resnet50 = partial(resnet, name='resnet50')
 
 
+class ResNeXtGNWS(ResNet):
+    def get_features(self, x):
+        base = self.base
+        x = base.conv1(x)
+        x = base.bn1(x)
+        x = base.relu(x)
+        x = base.maxpool1(x)
+
+        x = base.layer1(x)
+        x = base.layer2(x)
+        x = base.layer3(x)
+        x = base.layer4(x)
+        return x
+
+
 def resnet_gnws(name: str, head_name: str, pretrained: bool = True):
     """
     https://github.com/joe-siyuan-qiao/pytorch-classification
     """
-    base = getattr(gnws_resnet, name)()
+    if name.startswith('resnext'):
+        base = getattr(gnws_resnext, name)()
+        cls = ResNeXtGNWS
+    else:
+        cls = ResNet
+        base = getattr(gnws_resnet, name)()
     if pretrained:
         weights_name = {
             'resnet50': 'R-50-GN-WS.pth.tar',
+            'resnext50': 'X-50-GN-WS.pth.tar',
+            'resnet101': 'R-101-GN-WS.pth.tar',
+            'resnext101': 'X-101-GN-WS.pth.tar',
         }[name]
         state = torch.load(Path('data') / weights_name, map_location='cpu')
         base.load_state_dict({k.split('.', 1)[1]: v for k, v in state.items()})
     head_cls = globals()[head_name]
-    return ResNet(base=base, head_cls=head_cls)
+    return cls(base=base, head_cls=head_cls)
 
 
 resnet50_gnws = partial(resnet_gnws, name='resnet50')
+resnext50_gnws = partial(resnet_gnws, name='resnext50')
+resnet101_gnws = partial(resnet_gnws, name='resnet101')
+resnext101_gnws = partial(resnet_gnws, name='resnext101')
 
 
 def resnet_swsl(name: str, head_name: str, pretrained: bool = True):
-    # TODO kaggle support
-    base = torch.hub.load(
-        'facebookresearch/semi-supervised-ImageNet1K-models', name)
+    if pretrained:
+        base = torch.hub.load(
+            'facebookresearch/semi-supervised-ImageNet1K-models', name)
+    elif name == 'resnet50_swsl':
+        base = torchvision.models.resnet50(pretrained=False)
+    else:
+        raise ValueError(f'model "{name}" not supported yet')
     head_cls = globals()[head_name]
     return ResNet(base=base, head_cls=head_cls)
 
@@ -168,6 +201,14 @@ class ResNetTimm(ResNet):
         return x
 
 
+class TResNetTimm(ResNet):
+    def get_features(self, x):
+        return self.base.forward_features(x)
+
+    def get_features_dim(self):
+        return self.base.head.fc.in_features
+
+
 def resnet_timm(name: str, head_name: str, pretrained: bool = True):
     import timm
     base = timm.create_model(name, pretrained=pretrained)
@@ -176,3 +217,14 @@ def resnet_timm(name: str, head_name: str, pretrained: bool = True):
 
 
 resnet34_timm = partial(resnet_timm, name='resnet34')
+
+
+def tresnet_timm(name: str, head_name: str, pretrained: bool = True):
+    import timm
+    base = timm.create_model(name, pretrained=pretrained)
+    head_cls = globals()[head_name]
+    return TResNetTimm(base=base, head_cls=head_cls)
+
+
+tresnet_m = partial(tresnet_timm, name='tresnet_m')
+tresnet_l = partial(tresnet_timm, name='tresnet_l')
