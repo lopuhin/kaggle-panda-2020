@@ -226,7 +226,8 @@ def run_main(device_id, args):
         for n_tta in range(args.tta or 1):
             valid_loader = make_loader(
                 df_valid, args.batch_size, training=False, tta=bool(n_tta))
-            for ids, xs, ys in tqdm.tqdm(valid_loader, desc='validation'):
+            for ids, xs, ys in tqdm.tqdm(
+                    valid_loader, desc='validation', dynamic_ncols=True):
                 with amp.autocast(enabled=amp_enabled):
                     output, loss = forward(xs, ys)
                 if n_tta == 0:
