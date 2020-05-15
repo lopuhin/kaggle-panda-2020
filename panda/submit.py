@@ -21,6 +21,7 @@ def main():
     arg('--workers', type=int, default=4)
     arg('--device', type=str, default='cuda')
     arg('--batch-size', type=int)
+    arg('--tta', type=int)
     arg('--output')
     arg('--fold', type=int)
     arg('--n-folds', type=int, default=5)
@@ -44,23 +45,6 @@ def main():
     if args.batch_size:
         params['batch_size'] = args.batch_size
 
-    dataset = PandaDataset(
-        root=image_root,
-        df=df,
-        patch_size=params['patch_size'],
-        n_patches=params['n_test_patches'] or params['n_patches'],
-        scale=params['scale'],
-        level=params['level'],
-        training=False,
-        tta=False,  # TODO
-    )
-    loader = DataLoader(
-        dataset,
-        batch_size=params['batch_size'],
-        shuffle=False,
-        num_workers=args.workers,
-    )
-
     device = torch.device(args.device)
     model = getattr(models, params['model'])(
         head_name=params['head'], pretrained=False)
@@ -70,15 +54,37 @@ def main():
 
     predictions = []
     image_ids = []
-    with torch.no_grad():
-        if is_train:
-            loader = tqdm.tqdm(loader)
-        for ids, xs, ys in loader:
-            xs = xs.to(device)
-            ys = ys.to(device)
-            output = model(xs).cpu().numpy()
-            predictions.extend(output)
-            image_ids.extend(ids)
+
+    for n_tta in range(args.tta or 1):
+        dataset = PandaDataset(
+            root=image_root,
+            df=df,
+            patch_size=params['patch_size'],
+            n_patches=params['n_test_patches'] or params['n_patches'],
+            scale=params['scale'],
+            level=params['level'],
+            training=False,
+            tta=bool(n_tta),
+        )
+        loader = DataLoader(
+            dataset,
+            batch_size=params['batch_size'],
+            shuffle=False,
+            num_workers=args.workers,
+        )
+        with torch.no_grad():
+            if is_train:
+                loader = tqdm.tqdm(loader)
+            for ids, xs, ys in loader:
+                xs = xs.to(device)
+                ys = ys.to(device)
+                output = model(xs).cpu().numpy()
+                predictions.extend(output)
+                if n_tta == 0:
+                    image_ids.extend(ids)
+    if args.tta:
+        predictions = list(
+            np.array(predictions).reshape((args.tta, -1)).mean(0))
 
     binned_predictions = np.digitize(predictions, state['bins'])
     by_image_id = dict(zip(image_ids, binned_predictions))
