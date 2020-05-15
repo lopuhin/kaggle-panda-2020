@@ -20,16 +20,21 @@ class ResNet(nn.Module):
         self.frozen = False
 
     def get_features_dim(self):
-        return self.base.fc.in_features
-    
+        n = self.base.fc.in_features
+        return n + n // 2
+
     def forward(self, x):
         batch_size, n_patches, *patch_shape = x.shape
         x = x.reshape((batch_size * n_patches, *patch_shape))
-        x = self.get_features(x)
-        n_features = x.shape[1]
-        x = x.reshape((batch_size, n_patches, n_features, -1))
-        x = x.transpose(1, 2).reshape((batch_size, n_features, -1))
-        x = self.avgpool(x)
+        x1, x2 = self.get_features(x)
+        f_avg = []
+        for x in [x1, x2]:
+            n_features = x.shape[1]
+            x = x.reshape((batch_size, n_patches, n_features, -1))
+            x = x.transpose(1, 2).reshape((batch_size, n_features, -1))
+            x = self.avgpool(x)
+            f_avg.append(x)
+        x = torch.cat(f_avg, 1)
         x = torch.flatten(x, 1)
         x = self.head(x)
         return x.squeeze(1)
@@ -43,9 +48,9 @@ class ResNet(nn.Module):
 
         x = base.layer1(x)
         x = base.layer2(x)
-        x = base.layer3(x)
-        x = base.layer4(x)
-        return x
+        x_l3 = base.layer3(x)
+        x_l4 = base.layer4(x_l3)
+        return x_l3, x_l4
 
     def train(self, mode=True):
         super().train(mode)
