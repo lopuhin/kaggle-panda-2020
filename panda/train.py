@@ -175,7 +175,7 @@ def run_main(device_id, args):
         save_patches(xs_low, 'low')
         xs_low = xs_low.to(device, non_blocking=True)
         ys = ys.to(device, non_blocking=True)
-        output_low, output_per_patch = model_low(xs_low, with_per_patch=True)
+        output_low, cam = model_low(xs_low, with_cam=True)
         loss_low = criterion(output_low, ys)
         return output_per_patch, loss_low
 
@@ -271,7 +271,6 @@ def run_main(device_id, args):
                     patch = Image.fromarray(one_from_torch(xs[i, j]))
                     patch.save(run_root / f'patch-{kind}-{i}-{j}.jpeg')
 
-    @torch.no_grad()
     def validate():
         model_low.eval()
         model_high.eval()
@@ -285,8 +284,9 @@ def run_main(device_id, args):
                 with amp.autocast(enabled=amp_enabled):
                     output_per_patch, loss_low = forward_low(xs_low, ys)
                 output_per_patch = output_per_patch.detach().cpu().float()
-                with amp.autocast(enabled=amp_enabled):
-                    output, loss_high = forward_high(output_per_patch, xs_high, ys)
+                with torch.no_grad(), amp.autocast(enabled=amp_enabled):
+                    output, loss_high = forward_high(
+                        output_per_patch, xs_high, ys)
                 if n_tta == 0:
                     prediction_results['image_ids'].extend(ids)
                     prediction_results['targets'].extend(ys.cpu().numpy())

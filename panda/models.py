@@ -22,23 +22,33 @@ class ResNet(nn.Module):
     def get_features_dim(self):
         return self.base.fc.in_features
     
-    def forward(self, x, with_per_patch: bool = False):
+    def forward(self, x, with_cam: bool = False):
         batch_size, n_patches, *patch_shape = x.shape
         x = x.reshape((batch_size * n_patches, *patch_shape))
         x = self.get_features(x)
+        gradients = None
+
+        def hook(grad):
+            nonlocal gradients
+            gradients = grad
+
+        if with_cam:
+            features = x
+            features.register_hook(hook)
+
         n_features = x.shape[1]
         x = x.reshape((batch_size, n_patches, n_features, -1))
-        if with_per_patch:
-            xpp = x.reshape((batch_size * n_patches, n_features, -1))
-            xpp = self.avgpool(xpp).squeeze(2)
-            xpp = self.head(xpp).squeeze(1)
-            xpp = xpp.reshape((batch_size, n_patches))
         x = x.transpose(1, 2).reshape((batch_size, n_features, -1))
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
         x = self.head(x)
         x = x.squeeze(1)
-        return (x, xpp) if with_per_patch else x
+
+        if with_cam:
+            x[0].backward()
+            import IPython; IPython.embed()
+
+        return x
 
     def get_features(self, x):
         base = self.base
