@@ -175,7 +175,7 @@ def run_main(device_id, args):
         save_patches(xs_low, 'low')
         xs_low = xs_low.to(device, non_blocking=True)
         ys = ys.to(device, non_blocking=True)
-        output_low, cam = model_low(xs_low, with_cam=True)
+        output_low, output_per_patch = model_low(xs_low, with_cam=True)
         loss_low = criterion(output_low, ys)
         return output_per_patch, loss_low
 
