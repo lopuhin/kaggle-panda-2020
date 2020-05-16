@@ -7,6 +7,7 @@ import random
 
 import json_log_plots
 import numpy as np
+import pandas as pd
 from PIL import Image
 from sklearn.metrics import cohen_kappa_score
 from sklearn.model_selection import StratifiedKFold
@@ -45,6 +46,7 @@ def main():
     arg('--head', default='HeadFC2')
     arg('--device', default='cuda')
     arg('--validation', action='store_true')
+    arg('--validation-save')
     arg('--tta', type=int)
     arg('--save-patches', action='store_true')
     arg('--lr-scheduler', default='cosine')
@@ -255,28 +257,26 @@ def run_main(device_id, args):
 
         provider_by_id = dict(
             zip(df_valid['image_id'], df_valid['data_provider']))
-        providers = np.array([
-            provider_by_id[image_id]
-            for image_id in prediction_results['image_ids']])
         predictions = np.array(prediction_results['predictions'])
         targets = np.array(prediction_results['targets'])
+        image_ids = np.array(prediction_results['image_ids'])
 
         kfold = StratifiedKFold(args.n_folds, shuffle=True, random_state=42)
-        oof_predictions, oof_targets, oof_providers = [], [], []
+        oof_predictions, oof_targets, oof_image_ids = [], [], []
         for train_ids, valid_ids in kfold.split(targets, targets):
             rounder = OptimizedRounder(n_classes=N_CLASSES)
             rounder.fit(predictions[train_ids], targets[train_ids])
             oof_predictions.extend(rounder.predict(predictions[valid_ids]))
             oof_targets.extend(targets[valid_ids])
-            oof_providers.extend(providers[valid_ids])
+            oof_image_ids.extend(image_ids[valid_ids])
         oof_predictions = np.array(oof_predictions)
         oof_targets = np.array(oof_targets)
-        oof_providers = np.array(oof_providers)
         metrics = {
             'valid_loss': np.mean(prediction_results['losses']),
             'kappa': cohen_kappa_score(
                 oof_targets, oof_predictions, weights='quadratic')
         }
+        oof_providers = np.array([provider_by_id[x] for x in oof_image_ids])
         for provider in set(oof_providers):
             mask = oof_providers == provider
             metrics[f'kappa_{provider}'] = cohen_kappa_score(
@@ -284,7 +284,12 @@ def run_main(device_id, args):
         rounder = OptimizedRounder(n_classes=N_CLASSES)
         rounder.fit(predictions, targets)
         bins = rounder.coef_
-        return metrics, bins
+        predictions_df = pd.DataFrame({
+            'target': oof_targets,
+            'prediction': oof_predictions,
+            'image_id': oof_image_ids,
+        })
+        return metrics, bins, predictions_df
 
     model_path = run_root / 'model.pt'
     if args.validation:
@@ -293,11 +298,13 @@ def run_main(device_id, args):
             load_weights(model.module, state)
         else:
             load_weights(model, state)
-        valid_metrics, bins = validate()
+        valid_metrics, bins, predictions_df = validate()
         if is_main:
             for k, v in sorted(valid_metrics.items()):
                 print(f'{k:<20} {v:.4f}')
             print('bins', bins)
+            if args.validation_save:
+                predictions_df.to_csv(args.validation_save, index=None)
         return
 
     epoch_pbar = tqdm.trange(args.epochs, dynamic_ncols=True)
@@ -312,7 +319,7 @@ def run_main(device_id, args):
                 batch_size //= 2
                 grad_acc *= 2
         train_epoch(epoch)
-        valid_metrics, bins = validate()
+        valid_metrics, bins, _ = validate()
         if is_main:
             epoch_pbar.set_postfix(
                 {k: f'{v:.4f}' for k, v in valid_metrics.items()})
