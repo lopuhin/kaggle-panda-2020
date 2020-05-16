@@ -166,6 +166,7 @@ def run_main(device_id, args):
             p.unlink()
 
     def forward(xs, ys):
+        save_patches(xs)
         xs = xs.to(device, non_blocking=True)
         ys = ys.to(device, non_blocking=True)
         output = model(xs)
@@ -189,7 +190,6 @@ def run_main(device_id, args):
         optimizer.zero_grad()
         for i, (ids, xs, ys) in enumerate(pbar):
             step += len(ids) * n_devices
-            save_patches(xs)
             with amp.autocast(enabled=amp_enabled):
                 _, loss = forward(xs, ys)
             scaler.scale(loss).backward()
