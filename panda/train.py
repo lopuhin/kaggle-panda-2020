@@ -108,7 +108,8 @@ def run_main(device_id, args):
     if args.benchmark:
         cudnn.benchmark = True
     device = torch.device(args.device, index=device_id)
-    model_low = getattr(models, args.model)(head_name=args.head)
+    model_low = getattr(models, args.model)(
+        head_name=args.head, with_attention=True)
     model_high = getattr(models, args.model)(head_name=args.head)
     if args.optimizer == 'adam':
         assert args.wd == 0
@@ -175,19 +176,26 @@ def run_main(device_id, args):
         save_patches(xs_low, 'low')
         xs_low = xs_low.to(device, non_blocking=True)
         ys = ys.to(device, non_blocking=True)
-        output_low, output_per_patch = model_low(xs_low, with_cam=True)
+        output_low, attention = model_low(xs_low)
         loss_low = criterion(output_low, ys)
-        return output_per_patch, loss_low
+        return attention, loss_low
 
-    def forward_high(output_per_patch, xs_high, ys):
+    def forward_high(attention, xs_high, ys, sample=False):
         ys = ys.to(device, non_blocking=True)
-        temperature = 1.0  # TODO tune
-        sample_p = torch.softmax(temperature * output_per_patch, dim=1).numpy()
+        # TODO tune temperature
+        temperature = 3
+        if temperature != 1:
+            attention = torch.softmax(torch.log(attention) * temperature, 1)
+        sample_p = attention.numpy()
         high_indices_b, high_indices_p = [], []
         batch_size, n_patches = sample_p.shape
         for i in range(batch_size):
-            low_indices = np.random.choice(
-                range(n_patches), n_patches // 4, replace=False, p=sample_p[i])
+            if sample:
+                low_indices = np.random.choice(
+                    range(n_patches), n_patches // 4, replace=False,
+                    p=sample_p[i])
+            else:
+                low_indices = (-sample_p[i]).argsort()[:n_patches // 4]
             high_indices_p.extend([
                 4 * j + k for j in low_indices for k in range(4)])
             high_indices_b.extend([i] * n_patches)
@@ -221,14 +229,14 @@ def run_main(device_id, args):
             step += len(ids) * n_devices
 
             with amp.autocast(enabled=amp_enabled):
-                output_per_patch, loss_low = forward_low(xs_low, ys)
+                attention, loss_low = forward_low(xs_low, ys)
             scaler_low.scale(loss_low).backward()
             running_losses_low.append(float(loss_low))
-            output_per_patch = output_per_patch.detach().cpu().float()
+            attention = attention.detach().cpu().float()
             del loss_low
 
             with amp.autocast(enabled=amp_enabled):
-                _, loss_high = forward_high(output_per_patch, xs_high, ys)
+                _, loss_high = forward_high(attention, xs_high, ys, sample=True)
             scaler_high.scale(loss_high).backward()
             running_losses_high.append(float(loss_high))
             del loss_high
@@ -282,11 +290,11 @@ def run_main(device_id, args):
             for ids, xs_low, xs_high, ys in tqdm.tqdm(
                     valid_loader, desc='validation', dynamic_ncols=True):
                 with amp.autocast(enabled=amp_enabled):
-                    output_per_patch, loss_low = forward_low(xs_low, ys)
-                output_per_patch = output_per_patch.detach().cpu().float()
+                    attention, loss_low = forward_low(xs_low, ys)
+                attention = attention.detach().cpu().float()
                 with torch.no_grad(), amp.autocast(enabled=amp_enabled):
                     output, loss_high = forward_high(
-                        output_per_patch, xs_high, ys)
+                        attention, xs_high, ys)
                 if n_tta == 0:
                     prediction_results['image_ids'].extend(ids)
                     prediction_results['targets'].extend(ys.cpu().numpy())

@@ -10,51 +10,40 @@ from . import gnws_resnet, gnws_resnext
 
 
 class ResNet(nn.Module):
-    def __init__(self, base: nn.Module, head_cls):
+    def __init__(self, base: nn.Module, head_cls, with_attention: bool = False):
         super().__init__()
         self.base = base
         self.head = head_cls(
             in_features=self.get_features_dim(), out_features=1)
         self.avgpool = nn.AdaptiveAvgPool1d(output_size=1)
         self.maxpool = nn.AdaptiveMaxPool1d(output_size=1)
-        self.attention_w = nn.Linear(self.base.fc.in_features, 1, bias=False)
-        self.attention_softmax = nn.Softmax(dim=1)
+        self.with_attention = with_attention
+        if self.with_attention:
+            self.attention_w = nn.Linear(self.base.fc.in_features, 1, bias=False)
+            self.attention_softmax = nn.Softmax(dim=1)
         self.frozen = False
 
     def get_features_dim(self):
         return self.base.fc.in_features
     
-    def forward(self, x, with_cam: bool = False):
+    def forward(self, x):
         batch_size, n_patches, *patch_shape = x.shape
         x = x.reshape((batch_size * n_patches, *patch_shape))
         x = self.get_features(x)
-        gradients = None
-
-        def hook(grad):
-            nonlocal gradients
-            gradients = grad
-
-        if with_cam:
-            features = x
-            features.register_hook(hook)
-
         n_features = x.shape[1]
         x = x.reshape((batch_size * n_patches, n_features, -1))
-        att = self.attention_w(self.avgpool(x).squeeze(2)).squeeze(1)
-        att = self.attention_softmax(att.reshape(batch_size, n_patches))
+        if self.with_attention:
+            att = self.attention_w(self.avgpool(x).squeeze(2)).squeeze(1)
+            att = self.attention_softmax(att.reshape(batch_size, n_patches))
         x = x.reshape((batch_size, n_patches, n_features, -1))
-        x = x * att.unsqueeze(2).unsqueeze(3) * n_patches
+        if self.with_attention:
+            x = x * att.unsqueeze(2).unsqueeze(3) * n_patches
         x = x.transpose(1, 2).reshape((batch_size, n_features, -1))
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
         x = self.head(x)
         x = x.squeeze(1)
-
-        if with_cam:
-            x[0].backward()
-            import IPython; IPython.embed()
-
-        return x
+        return (x, att) if self.with_attention else x
 
     def get_features(self, x):
         base = self.base
@@ -130,10 +119,10 @@ def linear_ws(layer, x):
     return F.linear(x, weight, layer.bias)
 
 
-def resnet(name: str, head_name: str, pretrained: bool = True):
+def resnet(name: str, head_name: str, pretrained: bool = True, **kwargs):
     base = getattr(torchvision.models, name)(pretrained=pretrained)
     head_cls = globals()[head_name]
-    return ResNet(base=base, head_cls=head_cls)
+    return ResNet(base=base, head_cls=head_cls, **kwargs)
 
 
 resnet18 = partial(resnet, name='resnet18')
