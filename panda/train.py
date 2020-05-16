@@ -362,12 +362,17 @@ def run_main(device_id, args):
         if args.frozen:
             batch_size = args.batch_size
             grad_acc = args.grad_acc
-            model.frozen = True
+            model_low.frozen = model_high.frozen = True
             if epoch == 0:
-                model.frozen = False
+                model_low.frozen = model_high.frozen = False
                 batch_size //= 2
                 grad_acc *= 2
         train_epoch(epoch)
+        if is_main and not best_kappa:
+            torch.save({
+                'weights_low': model_low.state_dict(),
+                'weights_high': model_high.state_dict(),
+            }, model_path)
         valid_metrics, bins, _ = validate()
         if is_main:
             epoch_pbar.set_postfix(
@@ -376,7 +381,8 @@ def run_main(device_id, args):
             if valid_metrics['kappa'] > best_kappa:
                 best_kappa = valid_metrics['kappa']
                 state = {
-                    'weights': model.state_dict(),
+                    'weights_low': model_low.state_dict(),
+                    'weights_high': model_high.state_dict(),
                     'bins': bins,
                     'metrics': valid_metrics,
                     'params': params,
