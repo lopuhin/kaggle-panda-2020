@@ -81,8 +81,7 @@ class OptimizedRounder:
         return np.digitize(X, self.coef_)
 
 
-def load_weights(model, state):
-    weights = state['weights']
+def load_weights(model, weights):
     if all(key.startswith('module.') for key in weights):
         for key in list(weights):
             weights[key[len('module.'):]] = weights.pop(key)

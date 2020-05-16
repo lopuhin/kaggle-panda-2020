@@ -155,13 +155,15 @@ def run_main(device_id, args):
         os.environ['MASTER_ADDR'] = '127.0.0.1'
         torch.distributed.init_process_group(
             backend='nccl', rank=ddp_rank, world_size=n_devices)
-        # TODO
-       #model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
-       #model.to(device)
-       #model = nn.parallel.DistributedDataParallel(
-       #    model, device_ids=[device_id], output_device=device_id,
-       #    find_unused_parameters=True)  # not sure why it's needed?
-       #print(f'process group for {device} initialized')
+        model_low = nn.SyncBatchNorm.convert_sync_batchnorm(model_low)
+        model_high = nn.SyncBatchNorm.convert_sync_batchnorm(model_high)
+        model_low.to(device)
+        model_high.to(device)
+        model_low, model_high = [nn.parallel.DistributedDataParallel(
+            m, device_ids=[device_id], output_device=device_id,
+            find_unused_parameters=True)  # not sure why it's needed?
+            for m in [model_low, model_high]]
+        print(f'process group for {device} initialized')
     else:
         model_low.to(device)
         model_high.to(device)
@@ -271,20 +273,25 @@ def run_main(device_id, args):
 
     @torch.no_grad()
     def validate():
-        model.eval()
+        model_low.eval()
+        model_high.eval()
 
         prediction_results = defaultdict(list)
         for n_tta in range(args.tta or 1):
             valid_loader = make_loader(
                 df_valid, args.batch_size, training=False, tta=bool(n_tta))
-            for ids, xs, ys in tqdm.tqdm(
+            for ids, xs_low, xs_high, ys in tqdm.tqdm(
                     valid_loader, desc='validation', dynamic_ncols=True):
                 with amp.autocast(enabled=amp_enabled):
-                    output, loss = forward(xs, ys)
+                    output_per_patch, loss_low = forward_low(xs_low, ys)
+                output_per_patch = output_per_patch.detach().cpu().float()
+                with amp.autocast(enabled=amp_enabled):
+                    output, loss_high = forward_high(output_per_patch, xs_high, ys)
                 if n_tta == 0:
                     prediction_results['image_ids'].extend(ids)
                     prediction_results['targets'].extend(ys.cpu().numpy())
-                    prediction_results['losses'].append(float(loss))
+                    prediction_results['losses_low'].append(float(loss_low))
+                    prediction_results['losses_high'].append(float(loss_high))
                 prediction_results['predictions'].extend(
                     output.cpu().float().numpy())
         if args.tta:
@@ -321,10 +328,13 @@ def run_main(device_id, args):
         oof_predictions = np.array(oof_predictions)
         oof_targets = np.array(oof_targets)
         metrics = {
-            'valid_loss': np.mean(prediction_results['losses']),
+            'valid_loss_low': np.mean(prediction_results['losses_low']),
+            'valid_loss_high': np.mean(prediction_results['losses_high']),
             'kappa': cohen_kappa_score(
                 oof_targets, oof_predictions, weights='quadratic')
         }
+        metrics['valid_loss'] = np.mean(
+            [metrics['valid_loss_low'], metrics['valid_loss_high']])
         oof_providers = np.array([provider_by_id[x] for x in oof_image_ids])
         for provider in set(oof_providers):
             mask = oof_providers == provider
@@ -344,9 +354,11 @@ def run_main(device_id, args):
     if args.validation:
         state = torch.load(model_path, map_location='cpu')
         if args.ddp:
-            load_weights(model.module, state)
+            load_weights(model_low.module, state['weights_low'])
+            load_weights(model_high.module, state['weights_high'])
         else:
-            load_weights(model, state)
+            load_weights(model_low, state['weights_low'])
+            load_weights(model_high, state['weights_high'])
         valid_metrics, bins, predictions_df = validate()
         if is_main:
             for k, v in sorted(valid_metrics.items()):
