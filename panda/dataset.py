@@ -27,7 +27,6 @@ class PandaDataset(Dataset):
             df: pd.DataFrame,
             patch_size: int,
             n_patches: int,
-            scale: float,
             level: int,
             training: bool,
             tta: bool,
@@ -36,7 +35,6 @@ class PandaDataset(Dataset):
         self.root = root
         self.patch_size = patch_size
         self.n_patches = n_patches
-        self.scale = scale
         self.level = level
         self.training = training
         self.tta = tta
@@ -57,24 +55,33 @@ class PandaDataset(Dataset):
                 buffer = io.BytesIO()
                 Image.fromarray(image).save(buffer, format='jpeg', quality=90)
                 image = np.array(Image.open(buffer))
-        if self.scale != 1:
-            image = cv2.resize(
-                image, (int(image.shape[1] * self.scale),
-                        int(image.shape[0] * self.scale)),
-                interpolation=cv2.INTER_AREA)
+        s = self.patch_size
         if self.training or self.tta:
             image = random_flip(image)
             image = random_rot90(image)
             # if self.training: image = random_rotate(image)
-            image = random_pad(image, self.patch_size)
+            image = random_pad(image, s)
         patches = make_patches(
-            image, n=self.n_patches, size=self.patch_size,
-            randomize=self.training)
-        xs = torch.stack([to_torch(x) for x in patches])
-        assert xs.shape == (self.n_patches, 3, self.patch_size, self.patch_size)
-        assert xs.dtype == torch.float32
+            image, n=self.n_patches, size=s * 2, randomize=self.training)
+        patches_low = [
+            cv2.resize(patch, (s, s), interpolation=cv2.INTER_AREA)
+            for patch in patches]
+        patches_high = []
+        for patch in patches:
+            patches_high.extend([
+                patch[:s, :s],
+                patch[:s, s:],
+                patch[s:, :s],
+                patch[s:, s:],
+            ])
+        xs_low = torch.stack([to_torch(x) for x in patches_low])
+        xs_high = torch.stack([to_torch(x) for x in patches_high])
+        assert xs_low.shape == (self.n_patches, 3, s, s)
+        assert xs_low.dtype == torch.float32
+        assert xs_high.shape == (4 * self.n_patches, 3, s, s)
+        assert xs_high.dtype == torch.float32
         ys = torch.tensor(item.isup_grade, dtype=torch.float32)
-        return item.image_id, xs, ys
+        return item.image_id, xs_low, xs_high, ys
 
 
 MEAN = [0.894, 0.789, 0.857]

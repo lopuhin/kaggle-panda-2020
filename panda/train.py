@@ -38,7 +38,6 @@ def main():
     arg('--n-patches', type=int, default=12)
     arg('--n-test-patches', type=int)
     arg('--patch-size', type=int, default=128)
-    arg('--scale', type=float, default=1.0)
     arg('--level', type=int, default=2)
     arg('--epochs', type=int, default=10)
     arg('--workers', type=int, default=8)
@@ -92,7 +91,6 @@ def run_main(device_id, args):
             patch_size=args.patch_size,
             n_patches=args.n_patches if training else (
                 args.n_test_patches or args.n_patches),
-            scale=args.scale,
             level=args.level,
             training=training,
             tta=tta,
@@ -111,38 +109,42 @@ def run_main(device_id, args):
     if args.benchmark:
         cudnn.benchmark = True
     device = torch.device(args.device, index=device_id)
-    model = getattr(models, args.model)(head_name=args.head)
+    model_low = getattr(models, args.model)(head_name=args.head)
+    model_high = getattr(models, args.model)(head_name=args.head)
     if args.optimizer == 'adam':
         assert args.wd == 0
-        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    elif args.optimizer == 'adamw':
-        optimizer = torch.optim.AdamW(
-            model.parameters(), lr=args.lr, weight_decay=args.wd)
-    elif args.optimizer == 'sgd':
-        optimizer = torch.optim.SGD(
-            model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.wd)
+        optimizer_low = torch.optim.Adam(model_low.parameters(), lr=args.lr)
+        optimizer_high = torch.optim.Adam(model_high.parameters(), lr=args.lr)
     else:
         raise ValueError(f'unknown optimizer {args.optimizer}')
     criterion = nn.SmoothL1Loss()
     amp_enabled = bool(args.amp)
-    scaler = amp.GradScaler(enabled=amp_enabled)
+    scaler_low = amp.GradScaler(enabled=amp_enabled)
+    scaler_high = amp.GradScaler(enabled=amp_enabled)
     step = 0
 
-    lr_scheduler = None
+    lr_schedulers = []
     lr_scheduler_per_step = False
+    optimizers = [optimizer_low, optimizer_high]
     if args.lr_scheduler == 'cosine':
-        lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=args.epochs, eta_min=args.lr / 100)
+        lr_schedulers = [
+            torch.optim.lr_scheduler.CosineAnnealingLR(
+                o, T_max=args.epochs, eta_min=args.lr / 100)
+            for o in optimizers]
     elif args.lr_scheduler == 'step':
-        lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
-            optimizer, [int(args.epochs * 0.6), int(args.epochs * 0.8)])
+        lr_schedulers = [
+            torch.optim.lr_scheduler.MultiStepLR(
+                o, [int(args.epochs * 0.6), int(args.epochs * 0.8)])
+            for o in optimizers]
     elif args.lr_scheduler == '1cycle':
         assert not args.frozen
-        lr_scheduler = torch.optim.lr_scheduler.OneCycleLR(
-            optimizer, args.lr,
-            epochs=args.epochs,
-            steps_per_epoch=len(make_loader(df_train, args.batch_size, training=True)),
-        )
+        lr_schedulers = [
+            torch.optim.lr_scheduler.OneCycleLR(
+                o, args.lr,
+                epochs=args.epochs,
+                steps_per_epoch=len(
+                    make_loader(df_train, args.batch_size, training=True)))
+            for o in optimizers]
         lr_scheduler_per_step = True
     elif args.lr_scheduler:
         raise ValueError(f'unexpected schedule {args.schedule}')
@@ -153,65 +155,101 @@ def run_main(device_id, args):
         os.environ['MASTER_ADDR'] = '127.0.0.1'
         torch.distributed.init_process_group(
             backend='nccl', rank=ddp_rank, world_size=n_devices)
-        model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
-        model.to(device)
-        model = nn.parallel.DistributedDataParallel(
-            model, device_ids=[device_id], output_device=device_id,
-            find_unused_parameters=True)  # not sure why it's needed?
-        print(f'process group for {device} initialized')
+        # TODO
+       #model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
+       #model.to(device)
+       #model = nn.parallel.DistributedDataParallel(
+       #    model, device_ids=[device_id], output_device=device_id,
+       #    find_unused_parameters=True)  # not sure why it's needed?
+       #print(f'process group for {device} initialized')
     else:
-        model.to(device)
+        model_low.to(device)
+        model_high.to(device)
 
     if args.save_patches:
         for p in run_root.glob('patch-*.jpeg'):
             p.unlink()
 
-    def forward(xs, ys):
-        xs = xs.to(device, non_blocking=True)
+    def forward(xs_low, xs_high, ys):
+        xs_low = xs_low.to(device, non_blocking=True)
         ys = ys.to(device, non_blocking=True)
-        output = model(xs)
-        loss = criterion(output, ys)
-        return output, loss
+        output_low, output_per_patch = model_low(xs_low, with_per_patch=True)
+        loss_low = criterion(output_low, ys)
+        temperature = 1.0  # TODO tune
+        output_per_patch = output_per_patch.detach().float().cpu()
+        sample_p = torch.softmax(temperature * output_per_patch, dim=1).numpy()
+        high_indices_b, high_indices_p = [], []
+        batch_size, n_patches = sample_p.shape
+        for i in range(batch_size):
+            low_indices = np.random.choice(
+                range(n_patches), n_patches // 4, replace=False, p=sample_p[i])
+            high_indices_p.extend([
+                4 * j + k for j in low_indices for k in range(4)])
+            high_indices_b.extend([i] * n_patches)
+        xs_high = xs_high[high_indices_b, high_indices_p]
+        xs_high = xs_high.reshape((batch_size, n_patches) + xs_high.shape[1:])
+        xs_high = xs_high.to(device, non_blocking=True)
+        output_high = model_high(xs_high)
+        loss_high = criterion(output_high, ys)
+        return output_high, loss_low, loss_high
 
     grad_acc = args.grad_acc
     batch_size = args.batch_size
 
     def train_epoch(epoch):
         nonlocal step
-        model.train()
+        model_low.train()
+        model_high.train()
         report_freq = 5
-        running_losses = []
+        running_losses_low = []
+        running_losses_high = []
         train_loader = make_loader(
             df_train, batch_size, training=True, tta=False)
         if args.ddp:
             train_loader.sampler.set_epoch(epoch)
         pbar = tqdm.tqdm(train_loader, dynamic_ncols=True, desc='train',
                          disable=not is_main)
-        optimizer.zero_grad()
-        for i, (ids, xs, ys) in enumerate(pbar):
+        for o in optimizers:
+            o.zero_grad()
+        for i, (ids, xs_low, xs_high, ys) in enumerate(pbar):
             step += len(ids) * n_devices
-            save_patches(xs)
+            save_patches(xs_low)
             with amp.autocast(enabled=amp_enabled):
-                _, loss = forward(xs, ys)
-            scaler.scale(loss).backward()
+                _, loss_low, loss_high = forward(xs_low, xs_high, ys)
+            scaler_low.scale(loss_low).backward()
+            scaler_high.scale(loss_high).backward()
             if (i + 1) % grad_acc == 0:
-                scaler.step(optimizer)
-                scaler.update()
-                optimizer.zero_grad()
-            running_losses.append(float(loss))
+                scaler_low.step(optimizer_low)
+                scaler_low.update()
+                scaler_high.step(optimizer_high)
+                scaler_high.update()
+                for o in optimizers:
+                    o.zero_grad()
+            running_losses_low.append(float(loss_low))
+            running_losses_high.append(float(loss_high))
             if lr_scheduler_per_step:
-                try:
-                    lr_scheduler.step()
-                except ValueError as e:
-                    print(e)
+                for s in lr_schedulers:
+                    try:
+                        s.step()
+                    except ValueError as e:
+                        print(e)
             if i and i % report_freq == 0:
-                mean_loss = np.mean(running_losses)
-                running_losses.clear()
+                mean_loss_low = np.mean(running_losses_low)
+                mean_loss_high = np.mean(running_losses_high)
+                mean_loss = np.mean([mean_loss_low, mean_loss_high])
+                running_losses_low.clear()
+                running_losses_high.clear()
                 pbar.set_postfix({'loss': f'{mean_loss:.4f}'})
-                json_log_plots.write_event(run_root, step, loss=mean_loss)
+                json_log_plots.write_event(
+                    run_root, step,
+                    loss=mean_loss,
+                    loss_low=mean_loss_low,
+                    loss_high=mean_loss_high,
+                )
         pbar.close()
-        if lr_scheduler is not None and not lr_scheduler_per_step:
-            lr_scheduler.step()
+        if not lr_scheduler_per_step:
+            for s in lr_schedulers:
+                s.step()
 
     def save_patches(xs):
         if args.save_patches:
