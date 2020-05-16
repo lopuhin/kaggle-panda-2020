@@ -31,7 +31,7 @@ class ResNet(nn.Module):
         if with_per_patch:
             xpp = x.reshape((batch_size * n_patches, n_features, -1))
             xpp = self.avgpool(xpp).squeeze(2)
-            xpp = self.head(xpp)
+            xpp = self.head(xpp).squeeze(1)
             xpp = xpp.reshape((batch_size, n_patches))
         x = x.transpose(1, 2).reshape((batch_size, n_features, -1))
         x = self.avgpool(x)

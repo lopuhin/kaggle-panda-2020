@@ -3,7 +3,6 @@ from collections import defaultdict
 import json
 import os
 from pathlib import Path
-import random
 
 import json_log_plots
 import numpy as np
@@ -173,6 +172,7 @@ def run_main(device_id, args):
             p.unlink()
 
     def forward_low(xs_low, ys):
+        save_patches(xs_low, 'low')
         xs_low = xs_low.to(device, non_blocking=True)
         ys = ys.to(device, non_blocking=True)
         output_low, output_per_patch = model_low(xs_low, with_per_patch=True)
@@ -193,6 +193,7 @@ def run_main(device_id, args):
             high_indices_b.extend([i] * n_patches)
         xs_high = xs_high[high_indices_b, high_indices_p]
         xs_high = xs_high.reshape((batch_size, n_patches) + xs_high.shape[1:])
+        save_patches(xs_high, 'high')
         xs_high = xs_high.to(device, non_blocking=True)
         output_high = model_high(xs_high)
         loss_high = criterion(output_high, ys)
@@ -218,7 +219,6 @@ def run_main(device_id, args):
             o.zero_grad()
         for i, (ids, xs_low, xs_high, ys) in enumerate(pbar):
             step += len(ids) * n_devices
-            save_patches(xs_low)
 
             with amp.autocast(enabled=amp_enabled):
                 output_per_patch, loss_low = forward_low(xs_low, ys)
@@ -264,12 +264,12 @@ def run_main(device_id, args):
             for s in lr_schedulers:
                 s.step()
 
-    def save_patches(xs):
+    def save_patches(xs, kind: str):
         if args.save_patches:
-            for i in random.sample(range(len(xs)), 1):
-                j = random.randint(0, args.n_patches - 1)
-                patch = Image.fromarray(one_from_torch(xs[i, j]))
-                patch.save(run_root / f'patch-{i}.jpeg')
+            for i in range(min(2, len(xs))):
+                for j in range(args.n_patches):
+                    patch = Image.fromarray(one_from_torch(xs[i, j]))
+                    patch.save(run_root / f'patch-{kind}-{i}-{j}.jpeg')
 
     @torch.no_grad()
     def validate():
