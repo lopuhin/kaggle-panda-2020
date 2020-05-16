@@ -52,10 +52,11 @@ class PandaDataset(Dataset):
         else:
             image = crop_white(skimage.io.MultiImage(
                 str(self.root / f'{item.image_id}.tiff'))[self.level])
-            # use PIL as jpeg4py is not available on kaggle
-            buffer = io.BytesIO()
-            Image.fromarray(image).save(buffer, format='jpeg', quality=90)
-            image = np.array(Image.open(buffer))
+            if self.level != 0:
+                # use PIL as jpeg4py is not available on kaggle
+                buffer = io.BytesIO()
+                Image.fromarray(image).save(buffer, format='jpeg', quality=90)
+                image = np.array(Image.open(buffer))
         if self.scale != 1:
             image = cv2.resize(
                 image, (int(image.shape[1] * self.scale),
