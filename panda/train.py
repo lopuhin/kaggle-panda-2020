@@ -3,7 +3,6 @@ from collections import defaultdict
 import json
 import os
 from pathlib import Path
-import random
 
 import json_log_plots
 import numpy as np
@@ -215,10 +214,10 @@ def run_main(device_id, args):
 
     def save_patches(xs):
         if args.save_patches:
-            for i in random.sample(range(len(xs)), 1):
-                j = random.randint(0, args.n_patches - 1)
-                patch = Image.fromarray(one_from_torch(xs[i, j]))
-                patch.save(run_root / f'patch-{i}.jpeg')
+            for i in range(min(2, len(xs))):
+                for j in range(args.n_patches):
+                    patch = Image.fromarray(one_from_torch(xs[i, j]))
+                    patch.save(run_root / f'patch-{i}-{j}.jpeg')
 
     @torch.no_grad()
     def validate():
