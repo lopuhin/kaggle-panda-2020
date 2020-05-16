@@ -170,13 +170,16 @@ def run_main(device_id, args):
         for p in run_root.glob('patch-*.jpeg'):
             p.unlink()
 
-    def forward(xs_low, xs_high, ys):
+    def forward_low(xs_low, ys):
         xs_low = xs_low.to(device, non_blocking=True)
         ys = ys.to(device, non_blocking=True)
         output_low, output_per_patch = model_low(xs_low, with_per_patch=True)
         loss_low = criterion(output_low, ys)
+        return output_per_patch, loss_low
+
+    def forward_high(output_per_patch, xs_high, ys):
+        ys = ys.to(device, non_blocking=True)
         temperature = 1.0  # TODO tune
-        output_per_patch = output_per_patch.detach().float().cpu()
         sample_p = torch.softmax(temperature * output_per_patch, dim=1).numpy()
         high_indices_b, high_indices_p = [], []
         batch_size, n_patches = sample_p.shape
@@ -191,7 +194,7 @@ def run_main(device_id, args):
         xs_high = xs_high.to(device, non_blocking=True)
         output_high = model_high(xs_high)
         loss_high = criterion(output_high, ys)
-        return output_high, loss_low, loss_high
+        return output_high, loss_high
 
     grad_acc = args.grad_acc
     batch_size = args.batch_size
@@ -214,10 +217,20 @@ def run_main(device_id, args):
         for i, (ids, xs_low, xs_high, ys) in enumerate(pbar):
             step += len(ids) * n_devices
             save_patches(xs_low)
+
             with amp.autocast(enabled=amp_enabled):
-                _, loss_low, loss_high = forward(xs_low, xs_high, ys)
+                output_per_patch, loss_low = forward_low(xs_low, ys)
             scaler_low.scale(loss_low).backward()
+            running_losses_low.append(float(loss_low))
+            output_per_patch = output_per_patch.detach().cpu().float()
+            del loss_low
+
+            with amp.autocast(enabled=amp_enabled):
+                _, loss_high = forward_high(output_per_patch, xs_high, ys)
             scaler_high.scale(loss_high).backward()
+            running_losses_high.append(float(loss_high))
+            del loss_high
+
             if (i + 1) % grad_acc == 0:
                 scaler_low.step(optimizer_low)
                 scaler_low.update()
@@ -225,8 +238,6 @@ def run_main(device_id, args):
                 scaler_high.update()
                 for o in optimizers:
                     o.zero_grad()
-            running_losses_low.append(float(loss_low))
-            running_losses_high.append(float(loss_high))
             if lr_scheduler_per_step:
                 for s in lr_schedulers:
                     try:
