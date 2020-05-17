@@ -1,12 +1,21 @@
 from pathlib import Path
 from functools import partial
 
+try:
+    from inplace_abn.abn import InPlaceABN
+except ImportError:
+    InPlaceABN = None
 import torch
 from torch import nn
 from torch.nn import functional as F
 import torchvision.models
 
 from . import gnws_resnet, gnws_resnext
+
+
+batch_norm_classes = (nn.BatchNorm2d, nn.GroupNorm)
+if InPlaceABN is not None:
+    batch_norm_classes += (InPlaceABN,)
 
 
 class ResNet(nn.Module):
@@ -50,12 +59,20 @@ class ResNet(nn.Module):
     def train(self, mode=True):
         super().train(mode)
         if mode and self.frozen:
-            self.base.conv1.requires_grad_(False)
-            self.base.bn1.requires_grad_(False)
-            self.base.bn1.eval()
-            self.base.layer1.requires_grad_(False)
-            for m in self.base.layer1.modules():
-                if isinstance(m, nn.BatchNorm2d):
+            self._freeze(
+                self.base.conv1,
+                self.base.bn1,
+                self.base.layer1,
+                self.base.layer2,
+                self.base.layer3,
+                self.base.layer4,  # TODO check
+            )
+
+    def _freeze(self, *modules):
+        for module in modules:
+            module.requires_grad_(False)
+            for m in module.modules():
+                if isinstance(m, batch_norm_classes):
                     m.eval()
 
 
@@ -201,6 +218,11 @@ class TResNetTimm(ResNet):
 
     def get_features_dim(self):
         return self.base.head.fc.in_features
+
+    def train(self, mode=True):
+        nn.Module.train(self, mode)
+        if mode and self.frozen:
+            self._freeze(self.base.body)
 
 
 def resnet_timm(name: str, head_name: str, pretrained: bool = True):

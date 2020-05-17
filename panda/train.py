@@ -50,7 +50,8 @@ def main():
     arg('--save-patches', action='store_true')
     arg('--lr-scheduler', default='cosine')
     arg('--amp', type=int, default=1)
-    arg('--frozen', type=int, default=0)
+    arg('--frozen', action='store_true')
+    arg('--resume')
     arg('--ddp', type=int, default=0, help='number of devices to use with ddp')
     arg('--benchmark', type=int, default=1)
     arg('--optimizer', default='adam')
@@ -111,6 +112,8 @@ def run_main(device_id, args):
         cudnn.benchmark = True
     device = torch.device(args.device, index=device_id)
     model = getattr(models, args.model)(head_name=args.head)
+    if args.frozen:
+        model.frozen = True
     if args.optimizer == 'adam':
         assert args.wd == 0
         optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -136,11 +139,11 @@ def run_main(device_id, args):
         lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
             optimizer, [int(args.epochs * 0.6), int(args.epochs * 0.8)])
     elif args.lr_scheduler == '1cycle':
-        assert not args.frozen
         lr_scheduler = torch.optim.lr_scheduler.OneCycleLR(
             optimizer, args.lr,
             epochs=args.epochs,
-            steps_per_epoch=len(make_loader(df_train, args.batch_size, training=True)),
+            steps_per_epoch=len(make_loader(
+                df_train, args.batch_size, training=True, tta=False)),
         )
         lr_scheduler_per_step = True
     elif args.lr_scheduler:
@@ -173,16 +176,13 @@ def run_main(device_id, args):
         loss = criterion(output, ys)
         return output, loss
 
-    grad_acc = args.grad_acc
-    batch_size = args.batch_size
-
     def train_epoch(epoch):
         nonlocal step
         model.train()
         report_freq = 5
         running_losses = []
         train_loader = make_loader(
-            df_train, batch_size, training=True, tta=False)
+            df_train, args.batch_size, training=True, tta=False)
         if args.ddp:
             train_loader.sampler.set_epoch(epoch)
         pbar = tqdm.tqdm(train_loader, dynamic_ncols=True, desc='train',
@@ -193,7 +193,7 @@ def run_main(device_id, args):
             with amp.autocast(enabled=amp_enabled):
                 _, loss = forward(xs, ys)
             scaler.scale(loss).backward()
-            if (i + 1) % grad_acc == 0:
+            if (i + 1) % args.grad_acc == 0:
                 scaler.step(optimizer)
                 scaler.update()
                 optimizer.zero_grad()
@@ -290,13 +290,16 @@ def run_main(device_id, args):
         })
         return metrics, bins, predictions_df
 
-    model_path = run_root / 'model.pt'
-    if args.validation:
-        state = torch.load(model_path, map_location='cpu')
+    def load_weights_by_path(path):
+        state = torch.load(path, map_location='cpu')
         if args.ddp:
             load_weights(model.module, state)
         else:
             load_weights(model, state)
+
+    model_path = run_root / 'model.pt'
+    if args.validation:
+        load_weights_by_path(model_path)
         valid_metrics, bins, predictions_df = validate()
         if is_main:
             for k, v in sorted(valid_metrics.items()):
@@ -308,16 +311,9 @@ def run_main(device_id, args):
 
     epoch_pbar = tqdm.trange(args.epochs, dynamic_ncols=True)
     best_kappa = 0
-    for epoch in epoch_pbar:
-        if args.frozen:
-            batch_size = args.batch_size
-            grad_acc = args.grad_acc
-            model.frozen = True
-            if epoch == 0:
-                model.frozen = False
-                batch_size //= 2
-                grad_acc *= 2
-        train_epoch(epoch)
+
+    def _validate():
+        nonlocal best_kappa
         valid_metrics, bins, _ = validate()
         if is_main:
             epoch_pbar.set_postfix(
@@ -332,6 +328,14 @@ def run_main(device_id, args):
                     'params': params,
                 }
                 torch.save(state, model_path)
+
+    if args.resume:
+        load_weights_by_path(args.resume)
+        _validate()
+
+    for epoch in epoch_pbar:
+        train_epoch(epoch)
+        _validate()
 
 
 if __name__ == '__main__':
