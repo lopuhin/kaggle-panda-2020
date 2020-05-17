@@ -1,10 +1,8 @@
 from pathlib import Path
 from functools import partial
 
-try:
-    from inplace_abn.abn import InPlaceABN
-except ImportError:
-    InPlaceABN = None
+from inplace_abn.abn import InPlaceABN
+import timm
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -226,7 +224,6 @@ class TResNetTimm(ResNet):
 
 
 def resnet_timm(name: str, head_name: str, pretrained: bool = True):
-    import timm
     base = timm.create_model(name, pretrained=pretrained)
     head_cls = globals()[head_name]
     return ResNetTimm(base=base, head_cls=head_cls)
@@ -236,7 +233,6 @@ resnet34_timm = partial(resnet_timm, name='resnet34')
 
 
 def tresnet_timm(name: str, head_name: str, pretrained: bool = True):
-    import timm
     base = timm.create_model(name, pretrained=pretrained)
     head_cls = globals()[head_name]
     return TResNetTimm(base=base, head_cls=head_cls)
