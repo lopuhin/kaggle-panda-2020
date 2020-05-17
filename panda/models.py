@@ -65,7 +65,7 @@ class ResNet(nn.Module):
                 self.base.layer1,
                 self.base.layer2,
                 self.base.layer3,
-                self.base.layer4,  # TODO check
+                # without layer4
             )
 
     def _freeze(self, *modules):
@@ -222,7 +222,7 @@ class TResNetTimm(ResNet):
     def train(self, mode=True):
         nn.Module.train(self, mode)
         if mode and self.frozen:
-            self._freeze(self.base.body)
+            self._freeze(self.base.body[:-1])  # without layer4
 
 
 def resnet_timm(name: str, head_name: str, pretrained: bool = True):
