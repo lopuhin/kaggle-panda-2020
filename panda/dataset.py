@@ -63,13 +63,15 @@ class PandaDataset(Dataset):
                         int(image.shape[0] * self.scale)),
                 interpolation=cv2.INTER_AREA)
         if self.training or self.tta:
-            image = random_flip(image)
-            image = random_rot90(image)
             # if self.training: image = random_rotate(image)
             image = random_pad(image, self.patch_size)
         patches = make_patches(
             image, n=self.n_patches, size=self.patch_size,
             randomize=self.training)
+        if self.training or self.tta:
+            patches = list(map(random_flip, patches))
+            patches = list(map(random_rot90, patches))
+            patches = [p.copy() for p in patches]
         xs = torch.stack([to_torch(x) for x in patches])
         assert xs.shape == (self.n_patches, 3, self.patch_size, self.patch_size)
         assert xs.dtype == torch.float32
