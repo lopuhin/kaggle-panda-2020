@@ -9,6 +9,7 @@ from torch.nn import functional as F
 import torchvision.models
 
 from . import gnws_resnet, gnws_resnext
+from .dataset import N_CLASSES
 
 
 batch_norm_classes = (nn.BatchNorm2d, nn.GroupNorm)
@@ -21,7 +22,7 @@ class ResNet(nn.Module):
         super().__init__()
         self.base = base
         self.head = head_cls(
-            in_features=self.get_features_dim(), out_features=1)
+            in_features=self.get_features_dim(), out_features=N_CLASSES)
         self.avgpool = nn.AdaptiveAvgPool1d(output_size=1)
         self.maxpool = nn.AdaptiveMaxPool1d(output_size=1)
         self.frozen = False

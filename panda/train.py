@@ -9,7 +9,6 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 from sklearn.metrics import cohen_kappa_score
-from sklearn.model_selection import StratifiedKFold
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
@@ -19,9 +18,9 @@ from torch.backends import cudnn
 import torch.multiprocessing as mp
 import tqdm
 
-from .dataset import PandaDataset, one_from_torch, N_CLASSES
+from .dataset import PandaDataset, one_from_torch
 from . import models
-from .utils import OptimizedRounder, load_weights, train_valid_df
+from .utils import load_weights, train_valid_df
 
 
 def main():
@@ -125,7 +124,7 @@ def run_main(device_id, args):
             model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.wd)
     else:
         raise ValueError(f'unknown optimizer {args.optimizer}')
-    criterion = nn.SmoothL1Loss()
+    criterion = nn.CrossEntropyLoss()
     amp_enabled = bool(args.amp)
     scaler = amp.GradScaler(enabled=amp_enabled)
     step = 0
@@ -238,6 +237,7 @@ def run_main(device_id, args):
                 prediction_results['predictions'].extend(
                     output.cpu().float().numpy())
         if args.tta:
+            # TODO
             prediction_results['predictions'] = list(
                 np.array(prediction_results['predictions'])
                 .reshape((args.tta, -1)).mean(0))
@@ -257,38 +257,27 @@ def run_main(device_id, args):
         provider_by_id = dict(
             zip(df_valid['image_id'], df_valid['data_provider']))
         predictions = np.array(prediction_results['predictions'])
+        predictions_isup = predictions.argmax(1)
         targets = np.array(prediction_results['targets'])
         image_ids = np.array(prediction_results['image_ids'])
 
-        kfold = StratifiedKFold(args.n_folds, shuffle=True, random_state=42)
-        oof_predictions, oof_targets, oof_image_ids = [], [], []
-        for train_ids, valid_ids in kfold.split(targets, targets):
-            rounder = OptimizedRounder(n_classes=N_CLASSES)
-            rounder.fit(predictions[train_ids], targets[train_ids])
-            oof_predictions.extend(rounder.predict(predictions[valid_ids]))
-            oof_targets.extend(targets[valid_ids])
-            oof_image_ids.extend(image_ids[valid_ids])
-        oof_predictions = np.array(oof_predictions)
-        oof_targets = np.array(oof_targets)
         metrics = {
             'valid_loss': np.mean(prediction_results['losses']),
             'kappa': cohen_kappa_score(
-                oof_targets, oof_predictions, weights='quadratic')
+                targets, predictions_isup, weights='quadratic')
         }
-        oof_providers = np.array([provider_by_id[x] for x in oof_image_ids])
-        for provider in set(oof_providers):
-            mask = oof_providers == provider
+        providers = np.array([provider_by_id[x] for x in image_ids])
+        for provider in set(providers):
+            mask = providers == provider
             metrics[f'kappa_{provider}'] = cohen_kappa_score(
-                oof_targets[mask], oof_predictions[mask], weights='quadratic')
-        rounder = OptimizedRounder(n_classes=N_CLASSES)
-        rounder.fit(predictions, targets)
-        bins = rounder.coef_
+                targets[mask], predictions_isup[mask], weights='quadratic')
         predictions_df = pd.DataFrame({
-            'target': oof_targets,
-            'prediction': oof_predictions,
-            'image_id': oof_image_ids,
+            'target': targets,
+            'image_id': image_ids,
         })
-        return metrics, bins, predictions_df
+        for i in range(predictions.shape[1]):
+            predictions_df[f'pred_{i}'] = predictions[:, i]
+        return metrics, predictions_df
 
     def load_weights_by_path(path):
         state = torch.load(path, map_location='cpu')
@@ -300,11 +289,10 @@ def run_main(device_id, args):
     model_path = run_root / 'model.pt'
     if args.validation:
         load_weights_by_path(model_path)
-        valid_metrics, bins, predictions_df = validate()
+        valid_metrics, predictions_df = validate()
         if is_main:
             for k, v in sorted(valid_metrics.items()):
                 print(f'{k:<20} {v:.4f}')
-            print('bins', bins)
             if args.validation_save:
                 predictions_df.to_csv(args.validation_save, index=None)
         return
@@ -314,7 +302,7 @@ def run_main(device_id, args):
 
     def _validate():
         nonlocal best_kappa
-        valid_metrics, bins, _ = validate()
+        valid_metrics, _ = validate()
         if is_main:
             epoch_pbar.set_postfix(
                 {k: f'{v:.4f}' for k, v in valid_metrics.items()})
@@ -323,7 +311,6 @@ def run_main(device_id, args):
                 best_kappa = valid_metrics['kappa']
                 state = {
                     'weights': model.state_dict(),
-                    'bins': bins,
                     'metrics': valid_metrics,
                     'params': params,
                 }
