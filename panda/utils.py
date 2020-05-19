@@ -91,6 +91,8 @@ def load_weights(model, state):
 
 def train_valid_df(fold: int, n_folds: int):
     df = pd.read_csv('data/train.csv')
+    pen_markings = pd.read_csv('pen_markings.csv')
+    df = df[~df['image_id'].isin(pen_markings['image_id'])]
     kfold = StratifiedKFold(n_folds, shuffle=True, random_state=42)
     for i, (train_ids, valid_ids) in enumerate(kfold.split(df, df.isup_grade)):
         if i == fold:
