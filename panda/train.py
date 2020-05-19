@@ -3,10 +3,10 @@ from collections import defaultdict
 import json
 import os
 from pathlib import Path
-import random
 
 import json_log_plots
 import numpy as np
+import pandas as pd
 from PIL import Image
 from sklearn.metrics import cohen_kappa_score
 from sklearn.model_selection import StratifiedKFold
@@ -45,11 +45,13 @@ def main():
     arg('--head', default='HeadFC2')
     arg('--device', default='cuda')
     arg('--validation', action='store_true')
+    arg('--validation-save')
     arg('--tta', type=int)
     arg('--save-patches', action='store_true')
     arg('--lr-scheduler', default='cosine')
     arg('--amp', type=int, default=1)
-    arg('--frozen', type=int, default=0)
+    arg('--frozen', action='store_true')
+    arg('--resume')
     arg('--ddp', type=int, default=0, help='number of devices to use with ddp')
     arg('--benchmark', type=int, default=1)
     arg('--optimizer', default='adam')
@@ -110,6 +112,8 @@ def run_main(device_id, args):
         cudnn.benchmark = True
     device = torch.device(args.device, index=device_id)
     model = getattr(models, args.model)(head_name=args.head)
+    if args.frozen:
+        model.frozen = True
     if args.optimizer == 'adam':
         assert args.wd == 0
         optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -135,11 +139,11 @@ def run_main(device_id, args):
         lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
             optimizer, [int(args.epochs * 0.6), int(args.epochs * 0.8)])
     elif args.lr_scheduler == '1cycle':
-        assert not args.frozen
         lr_scheduler = torch.optim.lr_scheduler.OneCycleLR(
             optimizer, args.lr,
             epochs=args.epochs,
-            steps_per_epoch=len(make_loader(df_train, args.batch_size, training=True)),
+            steps_per_epoch=len(make_loader(
+                df_train, args.batch_size, training=True, tta=False)),
         )
         lr_scheduler_per_step = True
     elif args.lr_scheduler:
@@ -165,14 +169,12 @@ def run_main(device_id, args):
             p.unlink()
 
     def forward(xs, ys):
+        save_patches(xs)
         xs = xs.to(device, non_blocking=True)
         ys = ys.to(device, non_blocking=True)
         output = model(xs)
         loss = criterion(output, ys)
         return output, loss
-
-    grad_acc = args.grad_acc
-    batch_size = args.batch_size
 
     def train_epoch(epoch):
         nonlocal step
@@ -180,7 +182,7 @@ def run_main(device_id, args):
         report_freq = 5
         running_losses = []
         train_loader = make_loader(
-            df_train, batch_size, training=True, tta=False)
+            df_train, args.batch_size, training=True, tta=False)
         if args.ddp:
             train_loader.sampler.set_epoch(epoch)
         pbar = tqdm.tqdm(train_loader, dynamic_ncols=True, desc='train',
@@ -188,11 +190,10 @@ def run_main(device_id, args):
         optimizer.zero_grad()
         for i, (ids, xs, ys) in enumerate(pbar):
             step += len(ids) * n_devices
-            save_patches(xs)
             with amp.autocast(enabled=amp_enabled):
                 _, loss = forward(xs, ys)
             scaler.scale(loss).backward()
-            if (i + 1) % grad_acc == 0:
+            if (i + 1) % args.grad_acc == 0:
                 scaler.step(optimizer)
                 scaler.update()
                 optimizer.zero_grad()
@@ -213,10 +214,10 @@ def run_main(device_id, args):
 
     def save_patches(xs):
         if args.save_patches:
-            for i in random.sample(range(len(xs)), 1):
-                j = random.randint(0, args.n_patches - 1)
-                patch = Image.fromarray(one_from_torch(xs[i, j]))
-                patch.save(run_root / f'patch-{i}.jpeg')
+            for i in range(min(2, len(xs))):
+                for j in range(args.n_patches):
+                    patch = Image.fromarray(one_from_torch(xs[i, j]))
+                    patch.save(run_root / f'patch-{i}-{j}.jpeg')
 
     @torch.no_grad()
     def validate():
@@ -255,28 +256,26 @@ def run_main(device_id, args):
 
         provider_by_id = dict(
             zip(df_valid['image_id'], df_valid['data_provider']))
-        providers = np.array([
-            provider_by_id[image_id]
-            for image_id in prediction_results['image_ids']])
         predictions = np.array(prediction_results['predictions'])
         targets = np.array(prediction_results['targets'])
+        image_ids = np.array(prediction_results['image_ids'])
 
         kfold = StratifiedKFold(args.n_folds, shuffle=True, random_state=42)
-        oof_predictions, oof_targets, oof_providers = [], [], []
+        oof_predictions, oof_targets, oof_image_ids = [], [], []
         for train_ids, valid_ids in kfold.split(targets, targets):
             rounder = OptimizedRounder(n_classes=N_CLASSES)
             rounder.fit(predictions[train_ids], targets[train_ids])
             oof_predictions.extend(rounder.predict(predictions[valid_ids]))
             oof_targets.extend(targets[valid_ids])
-            oof_providers.extend(providers[valid_ids])
+            oof_image_ids.extend(image_ids[valid_ids])
         oof_predictions = np.array(oof_predictions)
         oof_targets = np.array(oof_targets)
-        oof_providers = np.array(oof_providers)
         metrics = {
             'valid_loss': np.mean(prediction_results['losses']),
             'kappa': cohen_kappa_score(
                 oof_targets, oof_predictions, weights='quadratic')
         }
+        oof_providers = np.array([provider_by_id[x] for x in oof_image_ids])
         for provider in set(oof_providers):
             mask = oof_providers == provider
             metrics[f'kappa_{provider}'] = cohen_kappa_score(
@@ -284,35 +283,38 @@ def run_main(device_id, args):
         rounder = OptimizedRounder(n_classes=N_CLASSES)
         rounder.fit(predictions, targets)
         bins = rounder.coef_
-        return metrics, bins
+        predictions_df = pd.DataFrame({
+            'target': oof_targets,
+            'prediction': oof_predictions,
+            'image_id': oof_image_ids,
+        })
+        return metrics, bins, predictions_df
 
-    model_path = run_root / 'model.pt'
-    if args.validation:
-        state = torch.load(model_path, map_location='cpu')
+    def load_weights_by_path(path):
+        state = torch.load(path, map_location='cpu')
         if args.ddp:
             load_weights(model.module, state)
         else:
             load_weights(model, state)
-        valid_metrics, bins = validate()
+
+    model_path = run_root / 'model.pt'
+    if args.validation:
+        load_weights_by_path(model_path)
+        valid_metrics, bins, predictions_df = validate()
         if is_main:
             for k, v in sorted(valid_metrics.items()):
                 print(f'{k:<20} {v:.4f}')
             print('bins', bins)
+            if args.validation_save:
+                predictions_df.to_csv(args.validation_save, index=None)
         return
 
     epoch_pbar = tqdm.trange(args.epochs, dynamic_ncols=True)
     best_kappa = 0
-    for epoch in epoch_pbar:
-        if args.frozen:
-            batch_size = args.batch_size
-            grad_acc = args.grad_acc
-            model.frozen = True
-            if epoch == 0:
-                model.frozen = False
-                batch_size //= 2
-                grad_acc *= 2
-        train_epoch(epoch)
-        valid_metrics, bins = validate()
+
+    def _validate():
+        nonlocal best_kappa
+        valid_metrics, bins, _ = validate()
         if is_main:
             epoch_pbar.set_postfix(
                 {k: f'{v:.4f}' for k, v in valid_metrics.items()})
@@ -326,6 +328,14 @@ def run_main(device_id, args):
                     'params': params,
                 }
                 torch.save(state, model_path)
+
+    if args.resume:
+        load_weights_by_path(args.resume)
+        _validate()
+
+    for epoch in epoch_pbar:
+        train_epoch(epoch)
+        _validate()
 
 
 if __name__ == '__main__':
