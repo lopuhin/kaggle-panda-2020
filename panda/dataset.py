@@ -5,6 +5,7 @@ from pathlib import Path
 import cv2
 try:
     import jpeg4py
+    import pyvips
 except ImportError:
     pass  # not needed on kaggle
 from PIL import Image
@@ -46,27 +47,29 @@ class PandaDataset(Dataset):
 
     def __getitem__(self, idx):
         item = self.df.iloc[idx]
-        jpeg_path = self.root / f'{item.image_id}_{self.level}.jpeg'
-        if jpeg_path.exists():
-            image = jpeg4py.JPEG(jpeg_path).decode()
+        # level 2 always used to find the crop locations
+        image_lvl2 = self._load_image(item.image_id, level=2)
+        if self.level != 2:
+            jpeg_path = self._jpeg_path(item.image_id, self.level)
+            if jpeg_path.exists():
+                image = pyvips.Image.new_from_file(str(jpeg_path))
+            else:
+                # TODO handle level 5
+                image = self._load_image(item.image_id, self.level)
         else:
-            image = crop_white(skimage.io.MultiImage(
-                str(self.root / f'{item.image_id}.tiff'))[self.level])
-            if self.level != 0:
-                # use PIL as jpeg4py is not available on kaggle
-                buffer = io.BytesIO()
-                Image.fromarray(image).save(buffer, format='jpeg', quality=90)
-                image = np.array(Image.open(buffer))
-        if self.scale != 1:
-            image = cv2.resize(
-                image, (int(image.shape[1] * self.scale),
-                        int(image.shape[0] * self.scale)),
-                interpolation=cv2.INTER_AREA)
-        if self.training or self.tta:
-            # if self.training: image = random_rotate(image)
-            image = random_pad(image, self.patch_size)
+            image = image_lvl2
+        # TODO check pyvips
+       #if self.scale != 1:
+       #    image = cv2.resize(
+       #        image, (int(image.shape[1] * self.scale),
+       #                int(image.shape[0] * self.scale)),
+       #        interpolation=cv2.INTER_AREA)
+       # TODO that should happen in make_patches?
+       #if self.training or self.tta:
+       #    # if self.training: image = random_rotate(image)
+       #    image = random_pad(image, self.patch_size)
         patches = make_patches(
-            image, n=self.n_patches, size=self.patch_size,
+            image, image_lvl2, n=self.n_patches, size=self.patch_size,
             randomize=self.training)
         if self.training or self.tta:
             patches = list(map(random_flip, patches))
@@ -77,6 +80,24 @@ class PandaDataset(Dataset):
         assert xs.dtype == torch.float32
         ys = torch.tensor(item.isup_grade, dtype=torch.float32)
         return item.image_id, xs, ys
+
+    def _jpeg_path(self, image_id: str, level: int) -> Path:
+        return self.root / f'{image_id}_{self.level}.jpeg'
+
+    def _load_image(self, image_id: str, level: int) -> np.ndarray:
+        jpeg_path = self._jpeg_path(image_id, level)
+        if jpeg_path.exists():
+            image = jpeg4py.JPEG(jpeg_path).decode()
+        else:
+            image = crop_white(skimage.io.MultiImage(
+                str(self.root / f'{image_id}.tiff'))[self.level])
+            # TODO handle level 5
+            # use PIL as jpeg4py is not available on kaggle
+            # TODO check if we can get jpegturbo to work on kaggle
+            buffer = io.BytesIO()
+            Image.fromarray(image).save(buffer, format='jpeg', quality=90)
+            image = np.array(Image.open(buffer))
+        return image
 
 
 MEAN = [0.894, 0.789, 0.857]
