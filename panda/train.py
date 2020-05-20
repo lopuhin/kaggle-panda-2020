@@ -55,6 +55,7 @@ def main():
     arg('--benchmark', type=int, default=1)
     arg('--optimizer', default='adam')
     arg('--wd', type=float, default=0)
+    arg('--soft-labels', type=float)
     args = parser.parse_args()
 
     if args.ddp:
@@ -124,7 +125,10 @@ def run_main(device_id, args):
             model.parameters(), lr=args.lr, momentum=0.9, weight_decay=args.wd)
     else:
         raise ValueError(f'unknown optimizer {args.optimizer}')
-    criterion = nn.CrossEntropyLoss()
+    if args.soft_labels:
+        criterion = soft_ce(args.soft_labels)
+    else:
+        criterion = nn.CrossEntropyLoss()
     amp_enabled = bool(args.amp)
     scaler = amp.GradScaler(enabled=amp_enabled)
     step = 0
@@ -322,6 +326,23 @@ def run_main(device_id, args):
     for epoch in epoch_pbar:
         train_epoch(epoch)
         _validate()
+
+
+def soft_ce(alpha: float):
+
+    def criterion(input, target_cls):
+        target = torch.zeros_like(input)
+        indices = torch.arange(0, target.shape[0])
+        n = target.shape[1]
+        assert n == N_CLASSES
+        target[indices, torch.clamp_min(target_cls - 1, 0)] = alpha
+        target[indices, torch.clamp_max(target_cls + 1, n - 1)] = alpha
+        target[indices, target_cls] = 1
+        target = target / target.sum(1, keepdim=True)
+        logprobs = nn.functional.log_softmax(input, dim=1)
+        return -(target * logprobs).sum() / input.shape[0]
+
+    return criterion
 
 
 if __name__ == '__main__':
