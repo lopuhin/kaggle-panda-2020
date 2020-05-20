@@ -8,7 +8,7 @@ import torch
 from torch.utils.data import DataLoader
 import tqdm
 
-from .dataset import PandaDataset
+from .dataset import PandaDataset, N_CLASSES
 from . import models
 from .utils import load_weights, train_valid_df
 
@@ -83,19 +83,19 @@ def main():
                 if n_tta == 0:
                     image_ids.extend(ids)
     if args.tta:
-        predictions = list(
-            np.array(predictions).reshape((args.tta, -1)).mean(0))
+        predictions = (np.array(predictions)
+                       .reshape((args.tta, -1, N_CLASSES)).mean(0))
 
-    binned_predictions = np.digitize(predictions, state['bins'])
-    by_image_id = dict(zip(image_ids, binned_predictions))
+    isup_predictions = np.argmax(predictions, -1)
+    by_image_id = dict(zip(image_ids, isup_predictions))
     df['isup_grade'] = df['image_id'].apply(lambda x: by_image_id[x])
     df.to_csv('submission.csv', index=False)
 
     if args.output:
         output = {
             'image_ids': image_ids,
-            'predictions': list(map(float, predictions)),
-            'bins': list(map(float, state['bins'])),
+            'predictions': [
+                list(map(float, logits)) for logits in predictions],
             'params': state['params'],
             'metrics': state['metrics'],
         }

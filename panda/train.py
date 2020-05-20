@@ -18,7 +18,7 @@ from torch.backends import cudnn
 import torch.multiprocessing as mp
 import tqdm
 
-from .dataset import PandaDataset, one_from_torch
+from .dataset import PandaDataset, one_from_torch, N_CLASSES
 from . import models
 from .utils import load_weights, train_valid_df
 
@@ -237,10 +237,9 @@ def run_main(device_id, args):
                 prediction_results['predictions'].extend(
                     output.cpu().float().numpy())
         if args.tta:
-            # TODO
             prediction_results['predictions'] = list(
                 np.array(prediction_results['predictions'])
-                .reshape((args.tta, -1)).mean(0))
+                .reshape((args.tta, -1, N_CLASSES)).mean(0))
         if args.ddp:
             paths = [run_root / f'.val_{i}.pth' for i in range(args.ddp)]
             if not is_main:
