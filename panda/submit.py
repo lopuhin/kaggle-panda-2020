@@ -9,15 +9,15 @@ from torch.utils.data import DataLoader
 import tqdm
 
 from .dataset import PandaDataset
-from . import models
+from . import models as panda_models
 from .utils import load_weights, train_valid_df
 
 
 def main():
     parser = argparse.ArgumentParser()
     arg = parser.add_argument
-    arg('model_path')
     arg('data_root')
+    arg('models', nargs='+')
     arg('--workers', type=int, default=4)
     arg('--device', type=str, default='cuda')
     arg('--batch-size', type=int)
@@ -39,23 +39,26 @@ def main():
             df.to_csv('submission.csv', index=False)
             return
 
-    # TODO multiple models
-    state = torch.load(args.model_path, map_location='cpu')
-    params = state['params']
+    states = [torch.load(m, map_location='cpu') for m in args.models]
+    params = states[0]['params']
     if args.batch_size:
         params['batch_size'] = args.batch_size
 
     device = torch.device(args.device)
-    model = getattr(models, params['model'])(
-        head_name=params['head'], pretrained=False)
-    model.to(device)
-    load_weights(model, state)
-    model.eval()
+    models = [
+        getattr(panda_models, s['params']['model'])(
+            head_name=s['params']['head'], pretrained=False)
+        for s in states]
+    for m, s in zip(models, states):
+        m.to(device)
+        load_weights(m, s)
+        m.eval()
 
     predictions = []
     image_ids = []
+    n_averaged = (args.tta or 1) * len(models)
 
-    for n_tta in range(args.tta or 1):
+    for n_tta in range(args.tta or 1):  # TODO do tta in the data loader
         dataset = PandaDataset(
             root=image_root,
             df=df,
@@ -78,15 +81,17 @@ def main():
             for ids, xs, ys in loader:
                 xs = xs.to(device)
                 ys = ys.to(device)
-                output = model(xs).cpu().numpy()
-                predictions.extend(output)
                 if n_tta == 0:
                     image_ids.extend(ids)
-    if args.tta:
+                for m in models:
+                    output = m(xs).cpu().numpy()
+                    predictions.extend(output)
+    if n_averaged > 1:
         predictions = list(
-            np.array(predictions).reshape((args.tta, -1)).mean(0))
+            np.array(predictions).reshape((n_averaged, -1)).mean(0))
 
-    binned_predictions = np.digitize(predictions, state['bins'])
+    bins = np.mean([s['bins'] for s in states], 0)
+    binned_predictions = np.digitize(predictions, bins)
     by_image_id = dict(zip(image_ids, binned_predictions))
     df['isup_grade'] = df['image_id'].apply(lambda x: by_image_id[x])
     df.to_csv('submission.csv', index=False)
@@ -95,9 +100,9 @@ def main():
         output = {
             'image_ids': image_ids,
             'predictions': list(map(float, predictions)),
-            'bins': list(map(float, state['bins'])),
-            'params': state['params'],
-            'metrics': state['metrics'],
+            'bins': list(map(float, bins)),
+            'params': [s['params'] for s in states],
+            'metrics': [s['metrics'] for s in states],
         }
         Path(args.output).write_text(
             json.dumps(output, indent=4, sort_keys=True))
