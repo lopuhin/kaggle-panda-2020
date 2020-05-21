@@ -54,9 +54,8 @@ def main():
         load_weights(m, s)
         m.eval()
 
-    predictions = []
+    predictions = [[] for _ in models]
     image_ids = []
-    n_averaged = (args.tta or 1) * len(models)
 
     for n_tta in range(args.tta or 1):  # TODO do tta in the data loader
         dataset = PandaDataset(
@@ -83,12 +82,13 @@ def main():
                 ys = ys.to(device)
                 if n_tta == 0:
                     image_ids.extend(ids)
-                for m in models:
+                for i, m in enumerate(models):
                     output = m(xs).cpu().numpy()
-                    predictions.extend(output)
-    if n_averaged > 1:
-        predictions = list(
-            np.array(predictions).reshape((n_averaged, -1)).mean(0))
+                    predictions[i].extend(output)
+
+    predictions = np.mean(predictions, 0)
+    if args.tta:
+        predictions = predictions.reshape((args.tta, -1)).mean(0)
 
     bins = np.mean([s['bins'] for s in states], 0)
     binned_predictions = np.digitize(predictions, bins)
