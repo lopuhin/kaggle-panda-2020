@@ -247,7 +247,7 @@ def run_main(device_id, args):
                 torch.save(prediction_results, paths[ddp_rank])
             torch.distributed.barrier()
             if not is_main:
-                return None, None
+                return None, None, None
             for p in paths[1:]:
                 worker_results = torch.load(p)
                 for key in list(prediction_results):
