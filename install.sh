@@ -1,6 +1,6 @@
 set -ev
 
-# Example setup, using pytorch/pytorch:1.5-cuda10.1-cudnn7-runtime image as a base
+# Example setup, using pytorch/pytorch:1.5-cuda10.1-cudnn7-devel image as a base
 # scp -P XXX install.sh root@ssh4.vast.ai:~/
 # scp -r -P XXX ~/.kaggle/ root@ssh4.vast.ai:~/
 
