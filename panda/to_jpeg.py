@@ -2,6 +2,7 @@
 from pathlib import Path
 import multiprocessing
 
+import cv2
 import jpeg4py
 from PIL import Image
 import numpy as np
@@ -15,6 +16,11 @@ def to_jpeg(path: Path):
     image = skimage.io.MultiImage(str(path))
     image_to_jpeg(path, '_1', image[1])
     image_to_jpeg(path, '_2', image[2])
+    image_0 = crop_white(image[0])
+    image_5 = cv2.resize(
+        image_0, (image_0.shape[1] // 2, image_0.shape[0] // 2),
+        interpolation=cv2.INTER_AREA)
+    image_to_jpeg(path, '_5', image_5)
 
 
 def image_to_jpeg(path: Path, suffix: str, image: np.ndarray):
