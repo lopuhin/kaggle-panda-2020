@@ -3,13 +3,15 @@ from pathlib import Path
 import multiprocessing
 
 import cv2
-import jpeg4py
-from PIL import Image
+import turbojpeg
 import numpy as np
 import skimage.io
 import tqdm
 
 from .utils import crop_white
+
+
+_jpeg = None
 
 
 def to_jpeg(path: Path):
@@ -24,17 +26,20 @@ def to_jpeg(path: Path):
 
 
 def image_to_jpeg(path: Path, suffix: str, image: np.ndarray):
+    global _jpeg
+    if _jpeg is None:
+        _jpeg = turbojpeg.TurboJPEG()
     jpeg_path = path.parent / f'{path.stem}{suffix}.jpeg'
     if jpeg_path.exists():
         try:
-            jpeg4py.JPEG(jpeg_path).decode()
+            _jpeg.decode(jpeg_path.read_bytes())
         except Exception as e:
             print(e)
         else:
             return
     image = crop_white(image)
-    image = Image.fromarray(image)
-    image.save(jpeg_path, quality=90)
+    jpeg_path.write_bytes(
+        _jpeg.encode(image, quality=90, pixel_format=turbojpeg.TJPF_RGB))
 
 
 def main():
