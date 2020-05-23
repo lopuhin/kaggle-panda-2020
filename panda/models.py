@@ -248,7 +248,7 @@ tresnet_l = partial(tresnet_timm, name='tresnet_l')
 class BiTResNet(ResNet):
     def get_features(self, x):
         base = self.base
-        return base.body(base.root(x))
+        return base.head[:2](base.body(base.root(x)))
 
     def get_features_dim(self):
         return self.base.head[0].num_channels
