@@ -1,14 +1,17 @@
-from pathlib import Path
+import io
 from functools import partial
+from pathlib import Path
 
 from inplace_abn.abn import InPlaceABN
+import requests
+import numpy as np
 import timm
 import torch
 from torch import nn
 from torch.nn import functional as F
 import torchvision.models
 
-from . import gnws_resnet, gnws_resnext
+from . import gnws_resnet, gnws_resnext, bit_resnet
 
 
 batch_norm_classes = (nn.BatchNorm2d, nn.GroupNorm)
@@ -240,3 +243,43 @@ def tresnet_timm(name: str, head_name: str, pretrained: bool = True):
 
 tresnet_m = partial(tresnet_timm, name='tresnet_m')
 tresnet_l = partial(tresnet_timm, name='tresnet_l')
+
+
+class BiTResNet(ResNet):
+    def get_features(self, x):
+        base = self.base
+        return base.body(base.root(x))
+
+    def get_features_dim(self):
+        return self.base.head[0].num_channels
+
+
+def get_bit_weights(bit_variant):
+    cached = Path('data') / f'bit_{bit_variant}.npz'
+    if cached.exists():
+        data = cached.read_bytes()
+    else:
+        print('downloading BiT weights')
+        response = requests.get(
+            f'https://storage.googleapis.com/bit_models/{bit_variant}.npz')
+        print('done')
+        response.raise_for_status()
+        data = response.content
+        cached.write_bytes(data)
+    return np.load(io.BytesIO(data))
+
+
+def resnet_bit(name: str, head_name: str, pretrained: bool = True):
+    base = bit_resnet.KNOWN_MODELS[name]()
+    if pretrained:
+        base.load_from(get_bit_weights(name))
+    head_cls = globals()[head_name]
+    return BiTResNet(base=base, head_cls=head_cls)
+
+
+resnet50_bit = partial(resnet_bit, name='BiT-M-R50x1')
+resnet50x3_bit = partial(resnet_bit, name='BiT-M-R50x3')
+resnet101_bit = partial(resnet_bit, name='BiT-M-R101x1')
+resnet101x3_bit = partial(resnet_bit, name='BiT-M-R101x3')
+resnet152x2_bit = partial(resnet_bit, name='BiT-M-R152x2')
+resnet152x4_bit = partial(resnet_bit, name='BiT-M-R152x4')
