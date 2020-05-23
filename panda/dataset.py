@@ -1,5 +1,6 @@
 import random
 from pathlib import Path
+from typing import Tuple
 
 import cv2
 import pandas as pd
@@ -10,7 +11,7 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 import turbojpeg
 
-from .utils import crop_white, rotate_image
+from .utils import rotate_image
 
 
 N_CLASSES = 6
@@ -46,23 +47,24 @@ class PandaDataset(Dataset):
         if jpeg_path.exists():
             image = self.jpeg.decode(
                 jpeg_path.read_bytes(), pixel_format=turbojpeg.TJPF_RGB)
+            image_l2 = scale_to_l2 = None  # image above is cropped
         else:
-            image = skimage.io.MultiImage(
+            multi_image = skimage.io.MultiImage(
                 str(self.root / f'{item.image_id}.tiff'))
             if self.level == 5:
-                image = image[0]
-                image = crop_white(image)
+                image = multi_image[0]
                 image = cv2.resize(
                     image, (image.shape[1] // 2, image.shape[0] // 2),
                     interpolation=cv2.INTER_AREA)
             else:
-                image = image[self.level]
-                image = crop_white(image)
+                image = multi_image[self.level]
             if self.level != 0:
                 image = self.jpeg.decode(
                     self.jpeg.encode(
                         image, quality=90, pixel_format=turbojpeg.TJPF_RGB),
                     pixel_format=turbojpeg.TJPF_RGB)
+            image_l2 = multi_image[2]
+            scale_to_l2 = [16, 4, 1, None, None, 8][self.level] * self.scale
         if self.scale != 1:
             image = cv2.resize(
                 image, (int(image.shape[1] * self.scale),
@@ -70,17 +72,20 @@ class PandaDataset(Dataset):
                 interpolation=cv2.INTER_AREA)
         if self.training or self.tta:
             # if self.training: image = random_rotate(image)
-            image = random_pad(image, self.patch_size)
+            pad, image = random_pad(image, self.patch_size)
+        else:
+            pad = (0, 0)
         patches = make_patches(
             image, n=self.n_patches, size=self.patch_size,
-            randomize=self.training)
+            randomize=self.training,
+            image_l2=image_l2, previous_pad=pad, scale_to_l2=scale_to_l2)
         if self.training or self.tta:
             patches = list(map(random_flip, patches))
             patches = list(map(random_rot90, patches))
             patches = [p.copy() for p in patches]
         xs = torch.stack([to_torch(x) for x in patches])
-        assert xs.shape == (self.n_patches, 3, self.patch_size, self.patch_size)
-        assert xs.dtype == torch.float32
+        assert xs.shape == (self.n_patches, 3, self.patch_size, self.patch_size), xs.shape
+        assert xs.dtype == torch.float32, xs.dtype
         ys = torch.tensor(item.isup_grade, dtype=torch.float32)
         return item.image_id, xs, ys
 
@@ -123,10 +128,11 @@ def random_rotate(image: np.ndarray) -> np.ndarray:
     return image
 
 
-def random_pad(image: np.ndarray, size: int) -> np.ndarray:
+def random_pad(
+        image: np.ndarray, size: int) -> Tuple[Tuple[int, int], np.ndarray]:
     pad0 = random.randint(0, size)
     pad1 = random.randint(0, size)
-    return np.pad(
+    return (pad0, pad1), np.pad(
         image,
         [[pad0, size - pad0], [pad1, size - pad1], [0, 0]],
         constant_values=255)
@@ -134,6 +140,9 @@ def random_pad(image: np.ndarray, size: int) -> np.ndarray:
 
 def make_patches(
         image: np.ndarray, n: int, size: int, randomize: bool = False,
+        image_l2: np.ndarray = None,
+        previous_pad: Tuple[int, int] = None,
+        scale_to_l2: float = None,
         ) -> np.ndarray:
     """ Based on https://www.kaggle.com/iafoss/panda-16x128x128-tiles
     """
@@ -149,16 +158,46 @@ def make_patches(
         constant_values=255)
     image = image.reshape(
         image.shape[0] // size, size, image.shape[1] // size, size, 3)
-    image = image.transpose(0, 2, 1, 3, 4).reshape(-1, size, size, 3)
-    if len(image) < n:
+    image = image.transpose(0, 2, 1, 3, 4)
+    image = image.reshape(-1, size, size, 3)
+    if len(image) < n:  # TODO get rid of this
         image = np.pad(
             image,
             [[0, n - len(image)], [0, 0], [0, 0], [0, 0]],
             constant_values=255)
-    counts = image.reshape(image.shape[0], -1).sum(-1)
+    max_value = 3 * size**2 * 255
+    if image_l2 is None:
+        counts = image.reshape(image.shape[0], -1).sum(-1)
+    else:
+        # optimization: use image_l1 to compute intensity
+        pad0, pad1 = previous_pad
+        pad0 += pad0_0
+        pad1 += pad1_0
+        pad0_l2 = int(round(pad0 / scale_to_l2))
+        pad1_l2 = int(round(pad1 / scale_to_l2))
+        size_l2 = int(size / scale_to_l2)
+        image_l2 = np.pad(
+            image_l2,
+            [[pad0_l2, (size_l2 - (image_l2.shape[0] + pad0_l2) % size_l2) % size_l2],
+             [pad1_l2, (size_l2 - (image_l2.shape[1] + pad1_l2) % size_l2) % size_l2],
+             [0, 0]],
+            constant_values=255)
+        image_l2 = image_l2.reshape(
+            image_l2.shape[0] // size_l2, size_l2,
+            image_l2.shape[1] // size_l2, size_l2, 3)
+        image_l2 = image_l2.transpose(0, 2, 1, 3, 4)
+        image_l2 = image_l2.reshape(-1, size_l2, size_l2, 3)
+        counts_l2 = image_l2.reshape(image_l2.shape[0], -1).sum(-1)
+        counts_l2 = counts_l2 * scale_to_l2 ** 2
+        diff = image.shape[0] - len(counts_l2)
+        if diff > 0:
+            counts_l2 = np.append(counts_l2, [max_value] * diff)
+        elif diff != 0:
+            counts_l2 = counts_l2[:image.shape[0]]
+        assert counts_l2.shape == image.shape[:1]
+        counts = counts_l2
     idxs = np.argsort(counts)[:n]
     if randomize:
-        max_value = 3 * size**2 * 255
         probs = (1 - counts / max_value)
         if (probs > 0).sum() > n:
             probs /= probs.sum()
