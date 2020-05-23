@@ -50,10 +50,19 @@ class PandaDataset(Dataset):
         if jpeg_path.exists():
             image = jpeg4py.JPEG(jpeg_path).decode()
         else:
-            image = crop_white(skimage.io.MultiImage(
-                str(self.root / f'{item.image_id}.tiff'))[self.level])
+            image = skimage.io.MultiImage(
+                str(self.root / f'{item.image_id}.tiff'))
+            if self.level == 5:
+                image = image[0]
+                image = crop_white(image)
+                image = cv2.resize(
+                    image, (image.shape[1] // 2, image.shape[0] // 2),
+                    interpolation=cv2.INTER_AREA)
+            else:
+                image = image[self.level]
+                image = crop_white(image)
             if self.level != 0:
-                # use PIL as jpeg4py is not available on kaggle
+                # use PIL as jpeg4py is not available on kaggle: FIXME
                 buffer = io.BytesIO()
                 Image.fromarray(image).save(buffer, format='jpeg', quality=90)
                 image = np.array(Image.open(buffer))
