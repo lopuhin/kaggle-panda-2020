@@ -2,7 +2,10 @@ import io
 from functools import partial
 from pathlib import Path
 
-from inplace_abn.abn import InPlaceABN
+try:
+    from inplace_abn.abn import InPlaceABN
+except ImportError:
+    InPlaceABN = None
 import requests
 import numpy as np
 import timm
