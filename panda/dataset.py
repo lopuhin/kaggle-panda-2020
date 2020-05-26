@@ -86,6 +86,7 @@ class PandaDataset(Dataset):
 
 
 MEAN = [0.894, 0.789, 0.857]
+WHITE_THRESHOLD = 0.79
 STD = [0.140, 0.256, 0.173]
 to_torch = transforms.Compose([
     transforms.ToTensor(),

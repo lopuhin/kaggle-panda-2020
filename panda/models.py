@@ -12,6 +12,7 @@ from torch.nn import functional as F
 import torchvision.models
 
 from . import gnws_resnet, gnws_resnext, bit_resnet
+from .dataset import WHITE_THRESHOLD
 
 
 batch_norm_classes = (nn.BatchNorm2d, nn.GroupNorm)
@@ -35,7 +36,9 @@ class ResNet(nn.Module):
     def forward(self, x):
         batch_size, n_patches, *patch_shape = x.shape
         x = x.reshape((batch_size * n_patches, *patch_shape))
+        white_mask = (x.mean(1) < WHITE_THRESHOLD).float().mean((1, 2))
         x = self.get_features(x)
+        x = x * white_mask[:, None, None, None]
         n_features = x.shape[1]
         x = x.reshape((batch_size, n_patches, n_features, -1))
         x = x.transpose(1, 2).reshape((batch_size, n_features, -1))
