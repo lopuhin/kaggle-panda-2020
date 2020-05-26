@@ -35,10 +35,16 @@ class PandaDataset(Dataset):
         self.level = level
         self.training = training
         self.tta = tta
-        self.jpeg = turbojpeg.TurboJPEG()
+        self._jpeg = None
 
     def __len__(self):
         return len(self.df)
+
+    @property
+    def jpeg(self):
+        if self._jpeg is None:
+            self._jpeg = turbojpeg.TurboJPEG()
+        return self._jpeg
 
     def __getitem__(self, idx):
         item = self.df.iloc[idx]
