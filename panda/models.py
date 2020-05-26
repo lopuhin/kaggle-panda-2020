@@ -31,6 +31,7 @@ class ResNet(nn.Module):
             in_features=self.get_features_dim(), out_features=1)
         self.avgpool = nn.AdaptiveAvgPool1d(output_size=1)
         self.maxpool = nn.AdaptiveMaxPool1d(output_size=1)
+        self.white_mask = False
         self.frozen = False
 
     def get_features_dim(self):
@@ -39,9 +40,11 @@ class ResNet(nn.Module):
     def forward(self, x):
         batch_size, n_patches, *patch_shape = x.shape
         x = x.reshape((batch_size * n_patches, *patch_shape))
-        white_mask = (x.mean(1) < WHITE_THRESHOLD).float().mean((1, 2))
+        if self.white_mask:
+            white_mask = (x.mean(1) < WHITE_THRESHOLD).float().mean((1, 2))
         x = self.get_features(x)
-        x = x * white_mask[:, None, None, None]
+        if self.white_mask:
+            x = x * white_mask[:, None, None, None]
         n_features = x.shape[1]
         x = x.reshape((batch_size, n_patches, n_features, -1))
         x = x.transpose(1, 2).reshape((batch_size, n_features, -1))

@@ -50,6 +50,7 @@ def main():
             head_name=s['params']['head'], pretrained=False)
         for s in states]
     for m, s in zip(models, states):
+        m.white_mask = s['params']['white_mask']
         m.to(device)
         load_weights(m, s)
         m.eval()
