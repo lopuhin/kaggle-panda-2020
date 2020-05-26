@@ -2,7 +2,10 @@ import io
 from functools import partial
 from pathlib import Path
 
-from inplace_abn.abn import InPlaceABN
+try:
+    from inplace_abn.abn import InPlaceABN
+except ImportError:
+    InPlaceABN = None
 import requests
 import numpy as np
 import timm
@@ -190,6 +193,8 @@ def resnet_swsl(name: str, head_name: str, pretrained: bool = True):
             'facebookresearch/semi-supervised-ImageNet1K-models', name)
     elif name == 'resnet50_swsl':
         base = torchvision.models.resnet50(pretrained=False)
+    elif name == 'resnext50_32x4d_swsl':
+        base = torchvision.models.resnext50_32x4d(pretrained=False)
     else:
         raise ValueError(f'model "{name}" not supported yet')
     head_cls = globals()[head_name]
