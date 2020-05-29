@@ -296,7 +296,10 @@ class ABNResNet(ResNet):
         return self.base.forward(x)
 
     def get_features_dim(self):
-        return self.base.mod5.block3.convs.bn2.bias.shape[0]
+        try:
+            return self.base.mod5.block3.convs.bn3.bias.shape[0]
+        except AttributeError:
+            return self.base.mod5.block3.convs.bn2.bias.shape[0]
 
 
 def resnet_abn(name: str, head_name: str, pretrained: bool = True):
@@ -312,3 +315,4 @@ def resnet_abn(name: str, head_name: str, pretrained: bool = True):
 
 
 resnet34_abn = partial(resnet_abn, name='resnet34')
+resnet50_abn = partial(resnet_abn, name='resnet50')
