@@ -109,7 +109,6 @@ def tta_mean(predictions, n_tta: int):
 
 def get_isup_predictions(logits):
     n_classes = logits.shape[1]
-    logits = np.array(logits)
     probs = torch.softmax(torch.from_numpy(logits), 1).numpy()
     # TODO check more tweaks here
     predictions_isup = (probs * np.arange(1, 1 + n_classes)).sum(1) - 1
