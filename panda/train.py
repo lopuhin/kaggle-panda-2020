@@ -260,7 +260,10 @@ def run_main(device_id, args):
         provider_by_id = dict(
             zip(df_valid['image_id'], df_valid['data_provider']))
         predictions = np.array(prediction_results['predictions'])
-        predictions_isup = predictions.argmax(1)
+        predictions = torch.softmax(torch.from_numpy(predictions), 1).numpy()
+        predictions_isup = (
+            (predictions * np.arange(1, 1 + N_CLASSES)).sum(1) - 1)
+        predictions_isup = predictions_isup.round().astype(int)
         targets = np.array(prediction_results['targets'])
         image_ids = np.array(prediction_results['image_ids'])
 
