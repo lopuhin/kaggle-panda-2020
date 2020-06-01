@@ -58,38 +58,36 @@ def main():
     predictions = [[] for _ in models]
     image_ids = []
 
-    for n_tta in range(args.tta or 1):  # TODO do tta in the data loader
-        dataset = PandaDataset(
-            root=image_root,
-            df=df,
-            patch_size=params['patch_size'],
-            n_patches=params['n_test_patches'] or params['n_patches'],
-            scale=params['scale'],
-            level=params['level'],
-            training=False,
-            tta=bool(n_tta),
-        )
-        loader = DataLoader(
-            dataset,
-            batch_size=params['batch_size'],
-            shuffle=False,
-            num_workers=args.workers,
-        )
-        with torch.no_grad():
-            if is_train:
-                loader = tqdm.tqdm(loader)
-            for ids, xs, ys in loader:
-                xs = xs.to(device)
-                ys = ys.to(device)
-                if n_tta == 0:
-                    image_ids.extend(ids)
-                for i, m in enumerate(models):
-                    output = m(xs).cpu().numpy()
-                    predictions[i].extend(output)
+    n_tta = args.tta or 1
+    dataset = PandaDataset(
+        root=image_root,
+        df=df,
+        patch_size=params['patch_size'],
+        n_patches=params['n_test_patches'] or params['n_patches'],
+        scale=params['scale'],
+        level=params['level'],
+        training=False,
+        n_tta=n_tta,
+    )
+    loader = DataLoader(
+        dataset,
+        batch_size=params['batch_size'],
+        shuffle=False,
+        num_workers=args.workers,
+    )
+    with torch.no_grad():
+        if is_train:
+            loader = tqdm.tqdm(loader)
+        for ids, xs, ys in loader:
+            xs = xs.to(device)
+            ys = ys.to(device)
+            image_ids.extend(ids)
+            for i, m in enumerate(models):
+                predictions[i].extend(m(xs).cpu().numpy())
 
-    predictions = np.mean(predictions, 0)
-    if args.tta:
-        predictions = predictions.reshape((args.tta, -1)).mean(0)
+    image_ids = image_ids[::n_tta]
+    predictions = np.mean([
+        np.array(x).reshape((-1, n_tta)).mean(1) for x in predictions], 0)
 
     bins = np.mean([s['bins'] for s in states], 0)
     binned_predictions = np.digitize(predictions, bins)

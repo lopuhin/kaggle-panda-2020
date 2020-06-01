@@ -25,7 +25,7 @@ class PandaDataset(Dataset):
             scale: float,
             level: int,
             training: bool,
-            tta: bool,
+            n_tta: int = 0,
             ):
         self.df = df
         self.root = root
@@ -34,11 +34,12 @@ class PandaDataset(Dataset):
         self.scale = scale
         self.level = level
         self.training = training
-        self.tta = tta
+        self.n_tta = n_tta or 1
         self._jpeg = None
+        self._last_image = None
 
     def __len__(self):
-        return len(self.df)
+        return len(self.df) * self.n_tta
 
     @property
     def jpeg(self):
@@ -47,7 +48,31 @@ class PandaDataset(Dataset):
         return self._jpeg
 
     def __getitem__(self, idx):
-        item = self.df.iloc[idx]
+        item = self.df.iloc[idx // self.n_tta]
+        do_tta = idx % self.n_tta != 0
+        if not do_tta:
+            del self._last_image
+            self._last_image = self._load_image(item)
+            self._last_item_id = item.image_id
+        assert self._last_item_id == item.image_id
+        image = self._last_image
+        if self.training or do_tta:  # TODO check disabling this
+            # if self.training: image = random_rotate(image)
+            image = random_pad(image, self.patch_size)
+        patches = make_patches(
+            image, n=self.n_patches, size=self.patch_size,
+            randomize=self.training)
+        if self.training or do_tta:
+            patches = list(map(random_flip, patches))
+            patches = list(map(random_rot90, patches))
+            patches = [p.copy() for p in patches]
+        xs = torch.stack([to_torch(x) for x in patches])
+        assert xs.shape == (self.n_patches, 3, self.patch_size, self.patch_size)
+        assert xs.dtype == torch.float32
+        ys = torch.tensor(item.isup_grade, dtype=torch.float32)
+        return item.image_id, xs, ys
+
+    def _load_image(self, item):
         jpeg_path = self.root / f'{item.image_id}_{self.level}.jpeg'
         if jpeg_path.exists():
             image = self.jpeg.decode(
@@ -74,21 +99,7 @@ class PandaDataset(Dataset):
                 image, (int(image.shape[1] * self.scale),
                         int(image.shape[0] * self.scale)),
                 interpolation=cv2.INTER_AREA)
-        if self.training or self.tta:
-            # if self.training: image = random_rotate(image)
-            image = random_pad(image, self.patch_size)
-        patches = make_patches(
-            image, n=self.n_patches, size=self.patch_size,
-            randomize=self.training)
-        if self.training or self.tta:
-            patches = list(map(random_flip, patches))
-            patches = list(map(random_rot90, patches))
-            patches = [p.copy() for p in patches]
-        xs = torch.stack([to_torch(x) for x in patches])
-        assert xs.shape == (self.n_patches, 3, self.patch_size, self.patch_size)
-        assert xs.dtype == torch.float32
-        ys = torch.tensor(item.isup_grade, dtype=torch.float32)
-        return item.image_id, xs, ys
+        return image
 
 
 MEAN = [0.894, 0.789, 0.857]

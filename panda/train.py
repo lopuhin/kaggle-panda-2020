@@ -86,7 +86,7 @@ def run_main(device_id, args):
     df_train, df_valid = train_valid_df(args.fold, args.n_folds)
     root = Path('data/train_images')
 
-    def make_loader(df, batch_size, training, tta):
+    def make_loader(df, batch_size, training, n_tta: int = 0):
         dataset = PandaDataset(
             root=root,
             df=df,
@@ -96,7 +96,7 @@ def run_main(device_id, args):
             scale=args.scale,
             level=args.level,
             training=training,
-            tta=tta,
+            n_tta=n_tta,
         )
         sampler = None
         if args.ddp:
@@ -144,7 +144,7 @@ def run_main(device_id, args):
             optimizer, args.lr,
             epochs=args.epochs,
             steps_per_epoch=len(make_loader(
-                df_train, args.batch_size, training=True, tta=False)),
+                df_train, args.batch_size, training=True)),
         )
         lr_scheduler_per_step = True
     elif args.lr_scheduler:
@@ -182,8 +182,7 @@ def run_main(device_id, args):
         model.train()
         report_freq = 5
         running_losses = []
-        train_loader = make_loader(
-            df_train, args.batch_size, training=True, tta=False)
+        train_loader = make_loader(df_train, args.batch_size, training=True)
         if args.ddp:
             train_loader.sampler.set_epoch(epoch)
         pbar = tqdm.tqdm(train_loader, dynamic_ncols=True, desc='train',
@@ -238,23 +237,25 @@ def run_main(device_id, args):
         model.eval()
 
         prediction_results = defaultdict(list)
-        for n_tta in range(args.tta or 1):
-            valid_loader = make_loader(
-                df_valid, args.batch_size, training=False, tta=bool(n_tta))
-            for ids, xs, ys in tqdm.tqdm(
-                    valid_loader, desc='validation', dynamic_ncols=True):
-                with amp.autocast(enabled=amp_enabled):
-                    output, loss = forward(xs, ys)
-                if n_tta == 0:
-                    prediction_results['image_ids'].extend(ids)
-                    prediction_results['targets'].extend(ys.cpu().numpy())
-                    prediction_results['losses'].append(float(loss))
-                prediction_results['predictions'].extend(
-                    output.cpu().float().numpy())
-        if args.tta:
-            prediction_results['predictions'] = list(
-                np.array(prediction_results['predictions'])
-                .reshape((args.tta, -1)).mean(0))
+        n_tta = args.tta or 1
+        valid_loader = make_loader(
+            df_valid, args.batch_size, training=False, n_tta=n_tta)
+        for ids, xs, ys in tqdm.tqdm(
+                valid_loader, desc='validation', dynamic_ncols=True):
+            with amp.autocast(enabled=amp_enabled):
+                output, loss = forward(xs, ys)
+            prediction_results['image_ids'].extend(ids)
+            prediction_results['targets'].extend(ys.cpu().numpy())
+            prediction_results['losses'].append(float(loss))
+            output = output.cpu().float().numpy()
+            prediction_results['predictions'].extend(output)
+        prediction_results['image_ids'] = \
+            prediction_results['image_ids'][::n_tta]
+        prediction_results['targets'] = \
+            prediction_results['targets'][::n_tta]
+        prediction_results['predictions'] = list(
+            np.array(prediction_results['predictions'])
+            .reshape((-1, n_tta)).mean(1))
         if args.ddp:
             paths = [run_root / f'.val_{i}.pth' for i in range(args.ddp)]
             if not is_main:
