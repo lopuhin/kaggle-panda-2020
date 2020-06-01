@@ -241,8 +241,8 @@ def run_main(device_id, args):
                 prediction_results['predictions'].extend(
                     output.cpu().float().numpy())
         if args.tta:
-            prediction_results['predictions'] = tta_mean(
-                prediction_results['predictions'], args.tta)
+            prediction_results['predictions'] = list(tta_mean(
+                np.array(prediction_results['predictions']), args.tta))
         if args.ddp:
             paths = [run_root / f'.val_{i}.pth' for i in range(args.ddp)]
             if not is_main:
