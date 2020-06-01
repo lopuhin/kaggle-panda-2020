@@ -1,19 +1,14 @@
-import io
 import random
 from pathlib import Path
 
 import cv2
-try:
-    import jpeg4py
-except ImportError:
-    pass  # not needed on kaggle
-from PIL import Image
 import pandas as pd
 import numpy as np
 import skimage.io
 import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
+import turbojpeg
 
 from .utils import crop_white, rotate_image
 
@@ -40,23 +35,40 @@ class PandaDataset(Dataset):
         self.level = level
         self.training = training
         self.tta = tta
+        self._jpeg = None
 
     def __len__(self):
         return len(self.df)
+
+    @property
+    def jpeg(self):
+        if self._jpeg is None:
+            self._jpeg = turbojpeg.TurboJPEG()
+        return self._jpeg
 
     def __getitem__(self, idx):
         item = self.df.iloc[idx]
         jpeg_path = self.root / f'{item.image_id}_{self.level}.jpeg'
         if jpeg_path.exists():
-            image = jpeg4py.JPEG(jpeg_path).decode()
+            image = self.jpeg.decode(
+                jpeg_path.read_bytes(), pixel_format=turbojpeg.TJPF_RGB)
         else:
-            image = crop_white(skimage.io.MultiImage(
-                str(self.root / f'{item.image_id}.tiff'))[self.level])
+            image = skimage.io.MultiImage(
+                str(self.root / f'{item.image_id}.tiff'))
+            if self.level == 5:
+                image = image[0]
+                image = crop_white(image)
+                image = cv2.resize(
+                    image, (image.shape[1] // 2, image.shape[0] // 2),
+                    interpolation=cv2.INTER_AREA)
+            else:
+                image = image[self.level]
+                image = crop_white(image)
             if self.level != 0:
-                # use PIL as jpeg4py is not available on kaggle
-                buffer = io.BytesIO()
-                Image.fromarray(image).save(buffer, format='jpeg', quality=90)
-                image = np.array(Image.open(buffer))
+                image = self.jpeg.decode(
+                    self.jpeg.encode(
+                        image, quality=90, pixel_format=turbojpeg.TJPF_RGB),
+                    pixel_format=turbojpeg.TJPF_RGB)
         if self.scale != 1:
             image = cv2.resize(
                 image, (int(image.shape[1] * self.scale),
