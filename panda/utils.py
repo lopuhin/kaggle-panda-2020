@@ -6,6 +6,7 @@ import pandas as pd
 import scipy as sp
 from sklearn import metrics
 from sklearn.model_selection import StratifiedKFold
+import torch
 
 
 def crop_white(image: np.ndarray, value: int = 255) -> np.ndarray:
@@ -99,3 +100,18 @@ def train_valid_df(fold: int, n_folds: int):
             df_train = df.iloc[train_ids]
             df_valid = df.iloc[valid_ids]
             return df_train, df_valid
+
+
+def tta_mean(predictions, n_tta: int):
+    n_classes = predictions.shape[1]
+    return np.array(predictions).reshape((n_tta, -1, n_classes)).mean(0)
+
+
+def get_isup_predictions(logits):
+    n_classes = logits.shape[1]
+    logits = np.array(logits)
+    probs = torch.softmax(torch.from_numpy(logits), 1).numpy()
+    # TODO check more tweaks here
+    predictions_isup = (probs * np.arange(1, 1 + n_classes)).sum(1) - 1
+    predictions_isup = predictions_isup.round().astype(int)
+    return predictions_isup

@@ -20,7 +20,7 @@ import tqdm
 
 from .dataset import PandaDataset, one_from_torch, N_CLASSES
 from . import models
-from .utils import load_weights, train_valid_df
+from .utils import load_weights, train_valid_df, tta_mean, get_isup_predictions
 
 
 def main():
@@ -241,9 +241,8 @@ def run_main(device_id, args):
                 prediction_results['predictions'].extend(
                     output.cpu().float().numpy())
         if args.tta:
-            prediction_results['predictions'] = list(
-                np.array(prediction_results['predictions'])
-                .reshape((args.tta, -1, N_CLASSES)).mean(0))
+            prediction_results['predictions'] = tta_mean(
+                prediction_results['predictions'], args.tta)
         if args.ddp:
             paths = [run_root / f'.val_{i}.pth' for i in range(args.ddp)]
             if not is_main:
@@ -260,12 +259,9 @@ def run_main(device_id, args):
         provider_by_id = dict(
             zip(df_valid['image_id'], df_valid['data_provider']))
         predictions = np.array(prediction_results['predictions'])
-        predictions = torch.softmax(torch.from_numpy(predictions), 1).numpy()
-        predictions_isup = (
-            (predictions * np.arange(1, 1 + N_CLASSES)).sum(1) - 1)
-        predictions_isup = predictions_isup.round().astype(int)
         targets = np.array(prediction_results['targets'])
         image_ids = np.array(prediction_results['image_ids'])
+        predictions_isup = get_isup_predictions(predictions)
 
         metrics = {
             'valid_loss': np.mean(prediction_results['losses']),

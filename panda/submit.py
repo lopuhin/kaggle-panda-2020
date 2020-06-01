@@ -8,9 +8,9 @@ import torch
 from torch.utils.data import DataLoader
 import tqdm
 
-from .dataset import PandaDataset, N_CLASSES
+from .dataset import PandaDataset
 from . import models as panda_models
-from .utils import load_weights, train_valid_df
+from .utils import load_weights, train_valid_df, tta_mean, get_isup_predictions
 
 
 def main():
@@ -88,10 +88,9 @@ def main():
 
     predictions = np.mean(predictions, 0)
     if args.tta:
-        predictions = (np.array(predictions)
-                       .reshape((args.tta, -1, N_CLASSES)).mean(0))
+        predictions = tta_mean(predictions, args.tta)
+    isup_predictions = get_isup_predictions(predictions)
 
-    isup_predictions = np.argmax(predictions, -1)
     by_image_id = dict(zip(image_ids, isup_predictions))
     df['isup_grade'] = df['image_id'].apply(lambda x: by_image_id[x])
     df.to_csv('submission.csv', index=False)
