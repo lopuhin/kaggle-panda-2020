@@ -317,3 +317,23 @@ def resnet_abn(name: str, head_name: str, pretrained: bool = True):
 
 resnet34_abn = partial(resnet_abn, name='resnet34')
 resnet50_abn = partial(resnet_abn, name='resnet50')
+
+
+class EffNet(ResNet):
+    def get_features_dim(self):
+        return self.base.classifier.in_features
+
+    def get_features(self, x):
+        return self.base.forward_features(x)
+
+
+def effnet(name: str, head_name: str, pretrained: bool = True):
+    base = timm.create_model(name, pretrained=pretrained)
+    head_cls = globals()[head_name]
+    return EffNet(base=base, head_cls=head_cls)
+
+
+effnet_b0 = partial(effnet, name='efficientnet_b0')
+effnet_b1 = partial(effnet, name='efficientnet_b1')
+effnet_b2 = partial(effnet, name='efficientnet_b2')
+effnet_b3 = partial(effnet, name='efficientnet_b3')
