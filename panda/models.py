@@ -334,6 +334,7 @@ def effnet(name: str, head_name: str, pretrained: bool = True):
 
 
 effnet_b0 = partial(effnet, name='efficientnet_b0')
+effnet_b0_ns = partial(effnet, name='tf_efficientnet_b0_ns')
 effnet_b1 = partial(effnet, name='efficientnet_b1')
 effnet_b2 = partial(effnet, name='efficientnet_b2')
 effnet_b3 = partial(effnet, name='efficientnet_b3')
