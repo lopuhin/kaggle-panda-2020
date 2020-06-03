@@ -83,7 +83,7 @@ def run_main(device_id, args):
                 json.dumps(params, indent=4, sort_keys=True))
 
     df_train, df_valid = train_valid_df(args.fold, args.n_folds)
-    df_valid = df_valid.sort_values('data_provider')  # TODO sort in submission
+    df_valid = df_valid.sort_values('data_provider')
     root = Path('data/train_images')
 
     def make_loader(df, batch_size, training, tta):

@@ -33,11 +33,15 @@ def main():
         image_root = root / 'train_images'
         _, df = train_valid_df(args.fold, args.n_folds)
     else:
-        df = pd.read_csv(root / 'sample_submission.csv')
+        df = pd.read_csv(root / 'test.csv')
         image_root = root / 'test_images'
-        if not image_root.exists():
-            df.to_csv('submission.csv', index=False)
-            return
+    df = df.sort_values('data_provider')
+    df['isup_grade'] = 0
+    df.pop('data_provider')
+
+    if not image_root.exists():
+        df.to_csv('submission.csv', index=False)
+        return
 
     states = [torch.load(m, map_location='cpu') for m in args.models]
     params = states[0]['params']
