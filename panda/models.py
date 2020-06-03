@@ -62,6 +62,12 @@ class Model(nn.Module):
         x = base.layer4(x)
         return x
 
+    def eval(self):
+        super().eval()
+        for m in self.modules():
+            if isinstance(m, batch_norm_classes):
+                m.train()
+
     def train(self, mode=True):
         super().train(mode)
         if mode and self.frozen:
