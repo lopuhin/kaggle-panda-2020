@@ -247,6 +247,7 @@ def resnet_timm(name: str, head_name: str, pretrained: bool = True):
 
 resnet34_timm = partial(resnet_timm, name='resnet34')
 resnet50_timm = partial(resnet_timm, name='resnet50')
+resnet101_timm = partial(resnet_timm, name='resnet101')
 
 
 def tresnet_timm(name: str, head_name: str, pretrained: bool = True):
