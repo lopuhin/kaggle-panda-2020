@@ -19,6 +19,15 @@ def make_split(n_folds: int = 5):
     assert set(split['fold']) == set(range(n_folds))
     split.to_csv('split.csv', index=None)
 
+    for fold in range(n_folds):
+        fold_df = df[df['image_id'].isin(split[split['fold'] == fold]['image_id'])]
+        print(
+            fold,
+            len(fold_df),
+            dict(fold_df['data_provider'].value_counts()),
+            dict(fold_df['isup_grade'].value_counts()),
+        )
+
 
 if __name__ == '__main__':
     make_split()
