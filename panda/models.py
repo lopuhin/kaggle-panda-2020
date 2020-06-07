@@ -14,8 +14,9 @@ from torch import nn
 from torch.nn import functional as F
 import torchvision.models
 
-from . import gnws_resnet, gnws_resnext, bit_resnet
 from .dataset import WHITE_THRESHOLD
+from . import gnws_resnet, gnws_resnext, bit_resnet
+from .abn_models import resnet as abn_resnet
 
 
 batch_norm_classes = (nn.BatchNorm2d, nn.GroupNorm)
@@ -294,3 +295,30 @@ resnet101_bit = partial(resnet_bit, name='BiT-M-R101x1')
 resnet101x3_bit = partial(resnet_bit, name='BiT-M-R101x3')
 resnet152x2_bit = partial(resnet_bit, name='BiT-M-R152x2')
 resnet152x4_bit = partial(resnet_bit, name='BiT-M-R152x4')
+
+
+class ABNResNet(ResNet):
+    def get_features(self, x):
+        return self.base.forward(x)
+
+    def get_features_dim(self):
+        try:
+            return self.base.mod5.block3.convs.bn3.bias.shape[0]
+        except AttributeError:
+            return self.base.mod5.block3.convs.bn2.bias.shape[0]
+
+
+def resnet_abn(name: str, head_name: str, pretrained: bool = True):
+    base = getattr(abn_resnet, 'net_' + name)()
+    if pretrained:
+        state = torch.load(f'data/abn_weights/{name}.pth.tar',
+                           map_location='cpu')
+        base.load_state_dict(
+            {k[len('module.'):]: v for k, v in state['state_dict'].items()
+             if 'classifier.' not in k})
+    head_cls = globals()[head_name]
+    return ABNResNet(base=base, head_cls=head_cls)
+
+
+resnet34_abn = partial(resnet_abn, name='resnet34')
+resnet50_abn = partial(resnet_abn, name='resnet50')
