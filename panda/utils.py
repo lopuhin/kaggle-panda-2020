@@ -5,7 +5,6 @@ import numpy as np
 import pandas as pd
 import scipy as sp
 from sklearn import metrics
-from sklearn.model_selection import StratifiedKFold
 import torch
 
 
@@ -92,14 +91,12 @@ def load_weights(model, state):
 
 def train_valid_df(fold: int, n_folds: int):
     df = pd.read_csv('data/train.csv')
-    pen_markings = pd.read_csv('pen_markings.csv')
-    df = df[~df['image_id'].isin(pen_markings['image_id'])]
-    kfold = StratifiedKFold(n_folds, shuffle=True, random_state=42)
-    for i, (train_ids, valid_ids) in enumerate(kfold.split(df, df.isup_grade)):
-        if i == fold:
-            df_train = df.iloc[train_ids]
-            df_valid = df.iloc[valid_ids]
-            return df_train, df_valid
+    split_df = pd.read_csv('split.csv')
+    train_images = split_df.query(f'fold != {fold}')['image_id']
+    valid_images = split_df.query(f'fold == {fold}')['image_id']
+    df_train = df[df['image_id'].isin(train_images)]
+    df_valid = df[df['image_id'].isin(valid_images)]
+    return df_train, df_valid
 
 
 def tta_mean(predictions, n_tta: int):
