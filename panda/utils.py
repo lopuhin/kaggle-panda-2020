@@ -95,5 +95,4 @@ def train_valid_df(fold: int, n_folds: int):
     valid_images = split_df.query(f'fold == {fold}')['image_id']
     df_train = df[df['image_id'].isin(train_images)]
     df_valid = df[df['image_id'].isin(valid_images)]
-    print(len(df_train), len(df_valid))
     return df_train, df_valid
