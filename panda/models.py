@@ -31,7 +31,7 @@ class ResNet(nn.Module):
         self.head = head_cls(
             in_features=self.get_features_dim(), out_features=1)
         self.avgpool = nn.AdaptiveAvgPool1d(output_size=1)
-        self.maxpool = nn.AdaptiveMaxPool1d(output_size=1)
+        self.mask_avgpool =  nn.AvgPool2d(kernel_size=32, stride=32)
         self.white_mask = False
         self.frozen = False
 
@@ -42,10 +42,12 @@ class ResNet(nn.Module):
         batch_size, n_patches, *patch_shape = x.shape
         x = x.reshape((batch_size * n_patches, *patch_shape))
         if self.white_mask:
-            white_mask = (x.mean(1) < WHITE_THRESHOLD).float().mean((1, 2))
+            with torch.no_grad():
+                white_mask = self.mask_avgpool(
+                    (x.mean(1, keepdim=True) < WHITE_THRESHOLD).float())
         x = self.get_features(x)
         if self.white_mask:
-            x = x * white_mask[:, None, None, None]
+            x = x * white_mask
         n_features = x.shape[1]
         x = x.reshape((batch_size, n_patches, n_features, -1))
         x = x.transpose(1, 2).reshape((batch_size, n_features, -1))
