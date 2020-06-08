@@ -45,6 +45,7 @@ class ResNet(nn.Module):
             with torch.no_grad():
                 white_mask = self.mask_avgpool(
                     (x.mean(1, keepdim=True) < WHITE_THRESHOLD).float())
+                white_mask = white_mask / (white_mask.mean() + 1e-2)
         x = self.get_features(x)
         if self.white_mask:
             x = x * white_mask
