@@ -58,6 +58,7 @@ class ResNet(nn.Module):
     def get_white_mask(self, x):
         white_mask = self.mask_avgpool(
             (x.mean(1, keepdim=True) < WHITE_THRESHOLD).float())
+        white_mask = (white_mask > 0.25).to(x.dtype)
         return white_mask / (white_mask.mean() + 1e-2)
 
     def get_features(self, x):
