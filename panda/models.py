@@ -42,10 +42,7 @@ class ResNet(nn.Module):
         batch_size, n_patches, *patch_shape = x.shape
         x = x.reshape((batch_size * n_patches, *patch_shape))
         if self.white_mask:
-            with torch.no_grad():
-                white_mask = self.mask_avgpool(
-                    (x.mean(1, keepdim=True) < WHITE_THRESHOLD).float())
-                white_mask = white_mask / (white_mask.mean() + 1e-2)
+            white_mask = self.get_white_mask(x)
         x = self.get_features(x)
         if self.white_mask:
             x = x * white_mask
@@ -56,6 +53,12 @@ class ResNet(nn.Module):
         x = torch.flatten(x, 1)
         x = self.head(x)
         return x.squeeze(1)
+
+    @torch.no_grad()
+    def get_white_mask(self, x):
+        white_mask = self.mask_avgpool(
+            (x.mean(1, keepdim=True) < WHITE_THRESHOLD).float())
+        return white_mask / (white_mask.mean() + 1e-2)
 
     def get_features(self, x):
         base = self.base
