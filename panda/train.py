@@ -219,10 +219,23 @@ def run_main(device_id, args):
 
     def save_patches(xs):
         if args.save_patches:
-            for i in range(min(2, len(xs))):
+            if args.white_mask:
+                batch_size, n_patches, *patch_shape = xs.shape
+                xm = xs.reshape((batch_size * n_patches, *patch_shape))
+                white_mask = model.get_white_mask(xm)
+                white_mask = white_mask.reshape((batch_size, n_patches) + white_mask.shape[2:])
+                white_mask = white_mask / (1e-2 + white_mask.max())
+            for i in range(min(4, len(xs))):
                 for j in range(args.n_patches):
                     patch = Image.fromarray(one_from_torch(xs[i, j]))
                     patch.save(run_root / f'patch-{i}-{j}.jpeg')
+                    if args.white_mask:
+                        mask = white_mask[i, j].numpy()
+                        mask = np.rollaxis(np.stack([mask, mask, mask]), 0, 3)
+                        mask = (mask * 255).astype(np.uint8)
+                        mask = Image.fromarray(mask)
+                        mask = mask.resize(xs[i, j].shape[1:][::-1])
+                        mask.save(run_root / f'patch-{i}-{j}-mask.png')
 
     @torch.no_grad()
     def validate():
