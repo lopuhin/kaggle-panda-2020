@@ -92,6 +92,8 @@ class PandaDataset(Dataset):
 
 MEAN = [0.894, 0.789, 0.857]
 STD = [0.140, 0.256, 0.173]
+WHITE_THRESHOLD = float(
+    np.mean([(0.90 - m) / s for m, s in zip(MEAN, STD)]))
 to_torch = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize(mean=MEAN, std=STD),

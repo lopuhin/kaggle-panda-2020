@@ -14,6 +14,7 @@ from torch import nn
 from torch.nn import functional as F
 import torchvision.models
 
+from .dataset import WHITE_THRESHOLD
 from . import gnws_resnet, gnws_resnext, bit_resnet
 from .dataset import N_CLASSES
 from .abn_models import resnet as abn_resnet
@@ -31,7 +32,8 @@ class Model(nn.Module):
         self.head = head_cls(
             in_features=self.get_features_dim(), out_features=N_CLASSES)
         self.avgpool = nn.AdaptiveAvgPool1d(output_size=1)
-        self.maxpool = nn.AdaptiveMaxPool1d(output_size=1)
+        self.mask_avgpool =  nn.AvgPool2d(kernel_size=32, stride=32)
+        self.white_mask = False
         self.frozen = False
 
     def get_features_dim(self):
@@ -40,7 +42,14 @@ class Model(nn.Module):
     def forward(self, x):
         batch_size, n_patches, *patch_shape = x.shape
         x = x.reshape((batch_size * n_patches, *patch_shape))
+        if self.white_mask:
+            with torch.no_grad():
+                white_mask = self.mask_avgpool(
+                    (x.mean(1, keepdim=True) < WHITE_THRESHOLD).float())
+                white_mask = white_mask / (white_mask.mean() + 1e-2)
         x = self.get_features(x)
+        if self.white_mask:
+            x = x * white_mask
         n_features = x.shape[1]
         x = x.reshape((batch_size, n_patches, n_features, -1))
         x = x.transpose(1, 2).reshape((batch_size, n_features, -1))

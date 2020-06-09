@@ -50,6 +50,7 @@ def main():
     arg('--lr-scheduler', default='cosine')
     arg('--amp', type=int, default=1)
     arg('--frozen', action='store_true')
+    arg('--white-mask', type=int, default=0)
     arg('--resume')
     arg('--ddp', type=int, default=0, help='number of devices to use with ddp')
     arg('--benchmark', type=int, default=1)
@@ -113,8 +114,8 @@ def run_main(device_id, args):
         cudnn.benchmark = True
     device = torch.device(args.device, index=device_id)
     model = getattr(models, args.model)(head_name=args.head)
-    if args.frozen:
-        model.frozen = True
+    model.frozen = args.frozen
+    model.white_mask = args.white_mask
     if args.optimizer == 'adam':
         assert args.wd == 0
         optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
