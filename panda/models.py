@@ -24,7 +24,7 @@ if InPlaceABN is not None:
     batch_norm_classes += (InPlaceABN,)
 
 
-class ResNet(nn.Module):
+class Model(nn.Module):
     def __init__(self, base: nn.Module, head_cls):
         super().__init__()
         self.base = base
@@ -146,7 +146,7 @@ def linear_ws(layer, x):
 def resnet(name: str, head_name: str, pretrained: bool = True):
     base = getattr(torchvision.models, name)(pretrained=pretrained)
     head_cls = globals()[head_name]
-    return ResNet(base=base, head_cls=head_cls)
+    return Model(base=base, head_cls=head_cls)
 
 
 resnet18 = partial(resnet, name='resnet18')
@@ -154,7 +154,7 @@ resnet34 = partial(resnet, name='resnet34')
 resnet50 = partial(resnet, name='resnet50')
 
 
-class ResNeXtGNWS(ResNet):
+class ResNeXtGNWS(Model):
     def get_features(self, x):
         base = self.base
         x = base.conv1(x)
@@ -177,7 +177,7 @@ def resnet_gnws(name: str, head_name: str, pretrained: bool = True):
         base = getattr(gnws_resnext, name)()
         cls = ResNeXtGNWS
     else:
-        cls = ResNet
+        cls = Model
         base = getattr(gnws_resnet, name)()
     if pretrained:
         weights_name = {
@@ -209,14 +209,14 @@ def resnet_swsl(name: str, head_name: str, pretrained: bool = True):
     else:
         raise ValueError(f'model "{name}" not supported yet')
     head_cls = globals()[head_name]
-    return ResNet(base=base, head_cls=head_cls)
+    return Model(base=base, head_cls=head_cls)
 
 
 resnet50_swsl = partial(resnet_swsl, name='resnet50_swsl')
 resnext50_32x4_swsl = partial(resnet_swsl, name='resnext50_32x4d_swsl')
 
 
-class ResNetTimm(ResNet):
+class ResNetTimm(Model):
     def get_features(self, x):
         base = self.base
         x = base.conv1(x)
@@ -232,7 +232,7 @@ class ResNetTimm(ResNet):
         return x
 
 
-class TResNetTimm(ResNet):
+class TResNetTimm(Model):
     def get_features(self, x):
         return self.base.forward_features(x)
 
@@ -264,7 +264,7 @@ tresnet_m = partial(tresnet_timm, name='tresnet_m')
 tresnet_l = partial(tresnet_timm, name='tresnet_l')
 
 
-class BiTResNet(ResNet):
+class BiTResNet(Model):
     def get_features(self, x):
         base = self.base
         return base.head[:2](base.body(base.root(x)))
@@ -304,7 +304,7 @@ resnet152x2_bit = partial(resnet_bit, name='BiT-M-R152x2')
 resnet152x4_bit = partial(resnet_bit, name='BiT-M-R152x4')
 
 
-class ABNResNet(ResNet):
+class ABNResNet(Model):
     def get_features(self, x):
         return self.base.forward(x)
 
@@ -329,3 +329,27 @@ def resnet_abn(name: str, head_name: str, pretrained: bool = True):
 
 resnet34_abn = partial(resnet_abn, name='resnet34')
 resnet50_abn = partial(resnet_abn, name='resnet50')
+
+
+class EffNet(Model):
+    def get_features_dim(self):
+        return self.base.classifier.in_features
+
+    def get_features(self, x):
+        return self.base.forward_features(x)
+
+
+def effnet(name: str, head_name: str, pretrained: bool = True):
+    base = timm.create_model(name, pretrained=pretrained)
+    head_cls = globals()[head_name]
+    return EffNet(base=base, head_cls=head_cls)
+
+
+effnet_b0 = partial(effnet, name='efficientnet_b0')
+effnet_b1 = partial(effnet, name='efficientnet_b1')
+effnet_b2 = partial(effnet, name='efficientnet_b2')
+effnet_b3 = partial(effnet, name='efficientnet_b3')
+effnet_b0_ns = partial(effnet, name='tf_efficientnet_b0_ns')
+effnet_b1_ns = partial(effnet, name='tf_efficientnet_b1_ns')
+effnet_b2_ns = partial(effnet, name='tf_efficientnet_b2_ns')
+effnet_b3_ns = partial(effnet, name='tf_efficientnet_b3_ns')
