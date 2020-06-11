@@ -1,0 +1,18 @@
+FROM nvidia/cuda:10.1-devel-ubuntu18.04
+
+ENV LANG C.UTF-8
+ENV LC_ALL C.UTF-8
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    python3-dev python3-pip \
+    libturbojpeg vim git unzip libglib2.0-0
+
+COPY requirements.txt .
+
+RUN pip3 install --no-cache pip -U && \
+    cat requirements.txt | grep -v 'inplace-abn' > r.txt && \
+    pip3 install --no-cache --pre -r r.txt -f https://download.pytorch.org/whl/nightly/cu101/torch_nightly.html && \
+    rm r.txt
+RUN nvidia-smi
+RUN pip3 install --no-cache inplace-abn==1.0.12 kaggle

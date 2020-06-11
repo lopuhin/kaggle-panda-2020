@@ -2,6 +2,7 @@ from functools import partial
 
 import cv2
 import numpy as np
+import pandas as pd
 import scipy as sp
 from sklearn import metrics
 
@@ -85,3 +86,13 @@ def load_weights(model, state):
         for key in list(weights):
             weights[key[len('module.'):]] = weights.pop(key)
     model.load_state_dict(weights)
+
+
+def train_valid_df(fold: int, n_folds: int):
+    df = pd.read_csv('data/train.csv')
+    split_df = pd.read_csv('split.csv')
+    train_images = split_df.query(f'fold != {fold}')['image_id']
+    valid_images = split_df.query(f'fold == {fold}')['image_id']
+    df_train = df[df['image_id'].isin(train_images)]
+    df_valid = df[df['image_id'].isin(valid_images)]
+    return df_train, df_valid

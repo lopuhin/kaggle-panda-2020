@@ -1,21 +1,16 @@
-import io
 import random
 from pathlib import Path
 
 from albumentations.augmentations.functional import(
     brightness_contrast_adjust, shift_hsv)
 import cv2
-try:
-    import jpeg4py
-except ImportError:
-    pass  # not needed on kaggle
-from PIL import Image
 import pandas as pd
 import numpy as np
 import skimage.io
 import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
+import turbojpeg
 
 from .utils import crop_white, rotate_image
 
@@ -32,6 +27,7 @@ class PandaDataset(Dataset):
             scale: float,
             level: int,
             training: bool,
+            tta: bool,
             ):
         self.df = df
         self.root = root
@@ -40,36 +36,57 @@ class PandaDataset(Dataset):
         self.scale = scale
         self.level = level
         self.training = training
+        self.tta = tta
+        self._jpeg = None
 
     def __len__(self):
         return len(self.df)
+
+    @property
+    def jpeg(self):
+        if self._jpeg is None:
+            self._jpeg = turbojpeg.TurboJPEG()
+        return self._jpeg
 
     def __getitem__(self, idx):
         item = self.df.iloc[idx]
         jpeg_path = self.root / f'{item.image_id}_{self.level}.jpeg'
         if jpeg_path.exists():
-            image = jpeg4py.JPEG(jpeg_path).decode()
+            image = self.jpeg.decode(
+                jpeg_path.read_bytes(), pixel_format=turbojpeg.TJPF_RGB)
         else:
-            image = crop_white(skimage.io.MultiImage(
-                str(self.root / f'{item.image_id}.tiff'))[self.level])
-            # use PIL as jpeg4py is not available on kaggle
-            buffer = io.BytesIO()
-            Image.fromarray(image).save(buffer, format='jpeg', quality=90)
-            image = np.array(Image.open(buffer))
+            image = skimage.io.MultiImage(
+                str(self.root / f'{item.image_id}.tiff'))
+            if self.level == 5:
+                image = image[0]
+                image = crop_white(image)
+                image = cv2.resize(
+                    image, (image.shape[1] // 2, image.shape[0] // 2),
+                    interpolation=cv2.INTER_AREA)
+            else:
+                image = image[self.level]
+                image = crop_white(image)
+            if self.level != 0:
+                image = self.jpeg.decode(
+                    self.jpeg.encode(
+                        image, quality=90, pixel_format=turbojpeg.TJPF_RGB),
+                    pixel_format=turbojpeg.TJPF_RGB)
         if self.scale != 1:
             image = cv2.resize(
                 image, (int(image.shape[1] * self.scale),
                         int(image.shape[0] * self.scale)),
                 interpolation=cv2.INTER_AREA)
-        if self.training:
-            image = random_flip(image)
-            image = random_rot90(image)
-            # image = random_rotate(image)
+        if self.training or self.tta:
+            # if self.training: image = random_rotate(image)
             image = random_pad(image, self.patch_size)
             image = color_aug(image)
         patches = make_patches(
             image, n=self.n_patches, size=self.patch_size,
             randomize=self.training)
+        if self.training or self.tta:
+            patches = list(map(random_flip, patches))
+            patches = list(map(random_rot90, patches))
+            patches = [p.copy() for p in patches]
         xs = torch.stack([to_torch(x) for x in patches])
         assert xs.shape == (self.n_patches, 3, self.patch_size, self.patch_size)
         assert xs.dtype == torch.float32
@@ -79,6 +96,8 @@ class PandaDataset(Dataset):
 
 MEAN = [0.894, 0.789, 0.857]
 STD = [0.140, 0.256, 0.173]
+WHITE_THRESHOLD = float(
+    np.mean([(0.90 - m) / s for m, s in zip(MEAN, STD)]))
 to_torch = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize(mean=MEAN, std=STD),
