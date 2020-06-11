@@ -86,7 +86,7 @@ def run_main(device_id, args):
     df_train, df_valid = train_valid_df(args.fold, args.n_folds)
     root = Path('data/train_images')
 
-    def make_loader(df, batch_size, training, tta):
+    def make_loader(df, batch_size, training, tta, **kwargs):
         dataset = PandaDataset(
             root=root,
             df=df,
@@ -97,6 +97,7 @@ def run_main(device_id, args):
             level=args.level,
             training=training,
             tta=tta,
+            **kwargs,
         )
         sampler = None
         if args.ddp:
@@ -182,8 +183,10 @@ def run_main(device_id, args):
         model.train()
         report_freq = 5
         running_losses = []
+        use_hard_aug = (epoch + 1) < 0.8 * args.epochs
         train_loader = make_loader(
-            df_train, args.batch_size, training=True, tta=False)
+            df_train, args.batch_size, training=True, tta=False,
+            hard_aug=use_hard_aug)
         if args.ddp:
             train_loader.sampler.set_epoch(epoch)
         pbar = tqdm.tqdm(train_loader, dynamic_ncols=True, desc='train',

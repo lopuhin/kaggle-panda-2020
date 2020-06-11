@@ -28,6 +28,7 @@ class PandaDataset(Dataset):
             level: int,
             training: bool,
             tta: bool,
+            hard_aug: bool = True,
             ):
         self.df = df
         self.root = root
@@ -38,6 +39,7 @@ class PandaDataset(Dataset):
         self.training = training
         self.tta = tta
         self._jpeg = None
+        self.hard_aug = hard_aug
 
     def __len__(self):
         return len(self.df)
@@ -77,7 +79,7 @@ class PandaDataset(Dataset):
                         int(image.shape[0] * self.scale)),
                 interpolation=cv2.INTER_AREA)
         if self.training or self.tta:
-            if self.training:
+            if self.training and self.hard_aug:
                 image = random_rotate(image)
             image = random_pad(image, self.patch_size)
         patches = make_patches(
@@ -86,7 +88,8 @@ class PandaDataset(Dataset):
         if self.training or self.tta:
             patches = list(map(random_flip, patches))
             patches = list(map(random_rot90, patches))
-            patches = list(map(color_aug, patches))
+            if self.training and self.hard_aug:
+                patches = list(map(color_aug, patches))
             patches = [p.copy() for p in patches]
         xs = torch.stack([to_torch(x) for x in patches])
         assert xs.shape == (self.n_patches, 3, self.patch_size, self.patch_size)
