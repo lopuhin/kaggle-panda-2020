@@ -49,7 +49,8 @@ class PandaDataset(Dataset):
     def __getitem__(self, idx):
         item = self.df.iloc[idx]
         jpeg_path = self.root / f'{item.image_id}_{self.level}.jpeg'
-        if jpeg_path.exists():
+        if False and jpeg_path.exists():
+            assert False
             image = self.jpeg.decode(
                 jpeg_path.read_bytes(), pixel_format=turbojpeg.TJPF_RGB)
         else:
@@ -64,11 +65,11 @@ class PandaDataset(Dataset):
             else:
                 image = image[self.level]
                 image = crop_white(image)
-            if self.level != 0:
-                image = self.jpeg.decode(
-                    self.jpeg.encode(
-                        image, quality=90, pixel_format=turbojpeg.TJPF_RGB),
-                    pixel_format=turbojpeg.TJPF_RGB)
+           #if self.level != 0:
+           #    image = self.jpeg.decode(
+           #        self.jpeg.encode(
+           #            image, quality=90, pixel_format=turbojpeg.TJPF_RGB),
+           #        pixel_format=turbojpeg.TJPF_RGB)
         if self.scale != 1:
             image = cv2.resize(
                 image, (int(image.shape[1] * self.scale),
