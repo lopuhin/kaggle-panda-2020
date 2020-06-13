@@ -12,14 +12,15 @@ from sklearn.metrics import cohen_kappa_score
 from sklearn.model_selection import StratifiedKFold
 import torch
 from torch import nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler
 from torch.utils.data.distributed import DistributedSampler
 from torch.cuda import amp
 from torch.backends import cudnn
 import torch.multiprocessing as mp
 import tqdm
 
-from .dataset import PandaDataset, one_from_torch, N_CLASSES
+from .dataset import PandaDataset, one_from_torch, N_CLASSES, \
+    get_sampler_weights
 from . import models
 from .utils import OptimizedRounder, load_weights, train_valid_df
 
@@ -84,8 +85,8 @@ def run_main(device_id, args):
                 json.dumps(params, indent=4, sort_keys=True))
 
     df_train, df_valid = train_valid_df(args.fold, args.n_folds)
-    df_train = pd.concat(
-        [df_train, df_train.query('data_provider == "karolinska"')])
+    train_sampler = WeightedRandomSampler(
+        get_sampler_weights(df_train), len(df_train), replacement=True)
     root = Path('data/train_images')
 
     def make_loader(df, batch_size, training, tta):
@@ -101,7 +102,12 @@ def run_main(device_id, args):
             tta=tta,
         )
         sampler = None
+        if df is df_train:
+            sampler = train_sampler
+        else:
+            assert df is df_valid
         if args.ddp:
+            assert False  # TODO
             sampler = DistributedSampler(dataset, shuffle=training)
         return DataLoader(
             dataset,

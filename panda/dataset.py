@@ -176,3 +176,12 @@ def make_patches(
             idxs = np.random.choice(
                 range(len(image)), size=n, p=probs, replace=False)
     return image[idxs]
+
+
+def get_sampler_weights(df_train):
+    groups = set(pd.read_csv('groups.csv')['image_id'])
+    radboud = set(df_train.query('data_provider == "radboud"')['image_id'])
+    return [
+        0.5 if image_id in groups else (
+            0.75 if image_id in radboud else 1.0)
+        for image_id in df_train['image_id']]
