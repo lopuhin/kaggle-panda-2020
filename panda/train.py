@@ -85,7 +85,10 @@ def run_main(device_id, args):
 
     df_train, df_valid = train_valid_df(args.fold, args.n_folds)
     df_train = pd.concat(
-        [df_train, df_train.query('data_provider == "karolinska"')])
+        [df_train,
+         df_train.query('data_provider == "karolinska"'),
+         df_train.query('data_provider == "karolinska"'),
+         ])
     root = Path('data/train_images')
 
     def make_loader(df, batch_size, training, tta):
