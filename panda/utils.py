@@ -72,12 +72,16 @@ class OptimizedRounder:
 
     def fit(self, X, y):
         loss_partial = partial(self._kappa_loss, X=X, y=y)
-        initial_coef = [0.5 + i for i in range(self.n_classes - 1)]
+        initial_coef = default_bins(self.n_classes)
         self.coef_ = sp.optimize.minimize(
             loss_partial, initial_coef, method='nelder-mead')['x']
 
     def predict(self, X):
         return np.digitize(X, self.coef_)
+
+
+def default_bins(n_classes):
+    return [0.5 + i for i in range(n_classes - 1)]
 
 
 def load_weights(model, state):
@@ -88,8 +92,12 @@ def load_weights(model, state):
     model.load_state_dict(weights)
 
 
+def train_df():
+    return pd.read_csv('data/train.csv')
+
+
 def train_valid_df(fold: int, n_folds: int):
-    df = pd.read_csv('data/train.csv')
+    df = train_df()
     split_df = pd.read_csv('split.csv')
     train_images = split_df.query(f'fold != {fold}')['image_id']
     valid_images = split_df.query(f'fold == {fold}')['image_id']

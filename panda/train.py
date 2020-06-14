@@ -21,7 +21,8 @@ import tqdm
 
 from .dataset import PandaDataset, one_from_torch, N_CLASSES
 from . import models
-from .utils import OptimizedRounder, load_weights, train_valid_df
+from .utils import (
+    OptimizedRounder, load_weights, train_valid_df, train_df, default_bins)
 
 
 def main():
@@ -58,6 +59,7 @@ def main():
     arg('--optimizer', default='adam')
     arg('--wd', type=float, default=0)
     arg('--oversample-karolinska', type=int, default=1)
+    arg('--no-validation', type=int, default=0, help='use whole train set')
     args = parser.parse_args()
 
     if args.ddp:
@@ -84,7 +86,11 @@ def run_main(device_id, args):
             (run_root / 'params.json').write_text(
                 json.dumps(params, indent=4, sort_keys=True))
 
-    df_train, df_valid = train_valid_df(args.fold, args.n_folds)
+    if args.no_validation:
+        df_train = train_df()[:300]
+        df_valid = None
+    else:
+        df_train, df_valid = train_valid_df(args.fold, args.n_folds)
     if args.oversample_karolinska:
         df_train = pd.concat(
             [df_train,
@@ -335,20 +341,28 @@ def run_main(device_id, args):
 
     def _validate():
         nonlocal best_kappa
-        valid_metrics, bins, _ = validate()
-        if is_main:
-            epoch_pbar.set_postfix(
-                {k: f'{v:.4f}' for k, v in valid_metrics.items()})
-            json_log_plots.write_event(run_root, step, **valid_metrics)
-            if valid_metrics['kappa'] > best_kappa:
-                best_kappa = valid_metrics['kappa']
-                state = {
-                    'weights': model.state_dict(),
-                    'bins': bins,
-                    'metrics': valid_metrics,
-                    'params': params,
-                }
-                torch.save(state, model_path)
+        if df_valid is not None:
+            valid_metrics, bins, _ = validate()
+            if is_main:
+                epoch_pbar.set_postfix(
+                    {k: f'{v:.4f}' for k, v in valid_metrics.items()})
+                json_log_plots.write_event(run_root, step, **valid_metrics)
+                if valid_metrics['kappa'] > best_kappa:
+                    best_kappa = valid_metrics['kappa']
+                    state = {
+                        'weights': model.state_dict(),
+                        'bins': bins,
+                        'metrics': valid_metrics,
+                        'params': params,
+                    }
+                    torch.save(state, model_path)
+        elif is_main:
+            state = {
+                'weights': model.state_dict(),
+                'bins': default_bins(N_CLASSES),
+                'params': params,
+            }
+            torch.save(state, model_path)
 
     if args.resume:
         load_weights_by_path(args.resume)
