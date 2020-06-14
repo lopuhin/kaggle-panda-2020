@@ -51,12 +51,13 @@ def main():
     arg('--lr-scheduler', default='cosine')
     arg('--amp', type=int, default=1)
     arg('--frozen', action='store_true')
-    arg('--white-mask', type=int, default=0)
+    arg('--white-mask', type=int, default=1)
     arg('--resume')
     arg('--ddp', type=int, default=0, help='number of devices to use with ddp')
     arg('--benchmark', type=int, default=1)
     arg('--optimizer', default='adam')
     arg('--wd', type=float, default=0)
+    arg('--oversample-karolinska', type=int, default=1)
     args = parser.parse_args()
 
     if args.ddp:
@@ -84,10 +85,11 @@ def run_main(device_id, args):
                 json.dumps(params, indent=4, sort_keys=True))
 
     df_train, df_valid = train_valid_df(args.fold, args.n_folds)
-    df_train = pd.concat(
-        [df_train,
-         df_train.query('data_provider == "karolinska"'),
-         ])
+    if args.oversample_karolinska:
+        df_train = pd.concat(
+            [df_train,
+             df_train.query('data_provider == "karolinska"'),
+             ])
     root = Path('data/train_images')
 
     def make_loader(df, batch_size, training, tta):
