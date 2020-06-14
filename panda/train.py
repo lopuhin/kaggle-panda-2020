@@ -87,7 +87,7 @@ def run_main(device_id, args):
                 json.dumps(params, indent=4, sort_keys=True))
 
     if args.no_validation:
-        df_train = train_df()[:300]
+        df_train = train_df()
         df_valid = None
     else:
         df_train, df_valid = train_valid_df(args.fold, args.n_folds)
