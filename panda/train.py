@@ -87,7 +87,6 @@ def run_main(device_id, args):
     df_train = pd.concat(
         [df_train,
          df_train.query('data_provider == "karolinska"'),
-         df_train.query('data_provider == "karolinska"'),
          ])
     root = Path('data/train_images')
 
