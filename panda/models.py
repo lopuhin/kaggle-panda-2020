@@ -264,6 +264,23 @@ tresnet_m = partial(tresnet_timm, name='tresnet_m')
 tresnet_l = partial(tresnet_timm, name='tresnet_l')
 
 
+class SeResNextTimm(Model):
+    def get_features(self, x):
+        return self.base.forward_features(x)
+
+    def get_features_dim(self):
+        return self.base.fc.in_features
+
+
+def seresnext_timm(name: str, head_name: str, pretrained: bool = True):
+    base = timm.create_model(name, pretrained=pretrained)
+    head_cls = globals()[head_name]
+    return SeResNextTimm(base=base, head_cls=head_cls)
+
+
+seresnext_26t = partial(seresnext_timm, name='seresnext26t_32x4d')
+
+
 class BiTResNet(Model):
     def get_features(self, x):
         base = self.base
