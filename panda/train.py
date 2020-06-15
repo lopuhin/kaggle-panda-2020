@@ -83,8 +83,9 @@ def run_main(device_id, args):
                 path = run_root / name
                 if path.exists():
                     path.unlink()
-            (run_root / 'params.json').write_text(
-                json.dumps(params, indent=4, sort_keys=True))
+            params_text = json.dumps(params, indent=4, sort_keys=True)
+            print(params_text)
+            (run_root / 'params.json').write_text(params_text)
 
     if args.no_validation:
         df_train = train_df()
