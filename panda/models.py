@@ -30,7 +30,7 @@ class Model(nn.Module):
         self.base = base
         self.head = head_cls(
             in_features=self.get_features_dim(), out_features=1)
-        self.avgpool = nn.AdaptiveAvgPool1d(output_size=1)
+        self.avgpool = nn.AdaptiveAvgPool2d(output_size=1)
         self.mask_avgpool =  nn.AvgPool2d(kernel_size=32, stride=32)
         self.white_mask = False
         self.frozen = False
@@ -46,11 +46,9 @@ class Model(nn.Module):
         x = self.get_features(x)
         if self.white_mask:
             x = x * white_mask
-        n_features = x.shape[1]
-        x = x.reshape((batch_size, n_patches, n_features, -1))
-        x = x.transpose(1, 2).reshape((batch_size, n_features, -1))
         x = self.avgpool(x)
-        x = torch.flatten(x, 1)
+        n_features = x.shape[1]
+        x = x.reshape((batch_size, n_patches, n_features))
         x = self.head(x)
         return x.squeeze(1)
 
@@ -92,6 +90,26 @@ class Model(nn.Module):
             for m in module.modules():
                 if isinstance(m, batch_norm_classes):
                     m.eval()
+
+
+class HeadTransformer(nn.Module):
+    def __init__(
+            self, in_features: int, out_features: int, n_layers=2):
+        super().__init__()
+        d_model = in_features
+        self.transformer = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(d_model=d_model, nhead=8),
+            num_layers=n_layers,
+            norm=nn.LayerNorm(d_model),
+        )
+        self.fc = nn.Linear(
+            in_features=d_model, out_features=out_features, bias=True)
+
+    def forward(self, x):
+        # TODO any extra normalization / dropout?
+        x = self.transformer(x.transpose(1, 0)).mean(0)
+        x = self.fc(x)
+        return x
 
 
 class HeadFC(nn.Module):

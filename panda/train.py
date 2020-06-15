@@ -43,7 +43,7 @@ def main():
     arg('--epochs', type=int, default=10)
     arg('--workers', type=int, default=8)
     arg('--model', default='resnet34')
-    arg('--head', default='HeadFC2')
+    arg('--head', default='HeadTransformer')
     arg('--device', default='cuda')
     arg('--validation', action='store_true')
     arg('--validation-save')
