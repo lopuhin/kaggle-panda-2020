@@ -353,29 +353,34 @@ def run_main(device_id, args):
 
     def _validate():
         nonlocal best_kappa
+        if model_ema is not None:
+            state_dict = model_ema.ema.state_dict()
+        else:
+            state_dict = model.state_dict()
         if df_valid is not None:
             valid_metrics, bins, _ = validate()
+            if model_ema is not None:
+                ema_valid_metrics, bins, _ = validate(use_ema=True)
+                valid_metrics = {
+                    'non_ema_{k}': v for k, v in valid_metrics.items()}
+                valid_metrics.update(ema_valid_metrics)
             if is_main:
                 epoch_pbar.set_postfix(
-                    {k: f'{v:.4f}' for k, v in valid_metrics.items()})
+                    {k: f'{v:.4f}' for k, v in valid_metrics.items()
+                     if not k.startswith('non_ema_')})
                 json_log_plots.write_event(run_root, step, **valid_metrics)
                 if valid_metrics['kappa'] > best_kappa:
                     best_kappa = valid_metrics['kappa']
                     state = {
-                        'weights': model.state_dict(),
+                        'weights': state_dict,
                         'bins': bins,
                         'metrics': valid_metrics,
                         'params': params,
                     }
                     torch.save(state, model_path)
-                if model_ema is not None:
-                    ema_valid_metrics, _, _ = validate(use_ema=True)
-                    json_log_plots.write_event(
-                        run_root, step,
-                        **{f'ema_{k}': v for k, v in ema_valid_metrics.items()})
         elif is_main:
             state = {
-                'weights': model.state_dict(),
+                'weights': state_dict,
                 'bins': default_bins(N_CLASSES),
                 'params': params,
             }
