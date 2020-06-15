@@ -94,19 +94,25 @@ class Model(nn.Module):
 
 class HeadTransformer(nn.Module):
     def __init__(
-            self, in_features: int, out_features: int, n_layers=2):
+            self, in_features: int, out_features: int,
+            hidden_size: int = 512, n_layers=2):
         super().__init__()
-        d_model = in_features
+        if hidden_size != in_features:
+            self.proj = nn.Linear(
+                in_features=in_features, out_features=hidden_size)
+        else:
+            self.proj = nn.Identity()
         self.transformer = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(d_model=d_model, nhead=8),
+            nn.TransformerEncoderLayer(d_model=hidden_size, nhead=8),
             num_layers=n_layers,
-            norm=nn.LayerNorm(d_model),
+            norm=nn.LayerNorm(hidden_size),
         )
         self.fc = nn.Linear(
-            in_features=d_model, out_features=out_features, bias=True)
+            in_features=hidden_size, out_features=out_features, bias=True)
 
     def forward(self, x):
         # TODO any extra normalization / dropout?
+        x = self.proj(x)
         x = self.transformer(x.transpose(1, 0)).mean(0)
         x = self.fc(x)
         return x
