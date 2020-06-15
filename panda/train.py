@@ -362,7 +362,7 @@ def run_main(device_id, args):
             if model_ema is not None:
                 ema_valid_metrics, bins, _ = validate(use_ema=True)
                 valid_metrics = {
-                    'non_ema_{k}': v for k, v in valid_metrics.items()}
+                    f'non_ema_{k}': v for k, v in valid_metrics.items()}
                 valid_metrics.update(ema_valid_metrics)
             if is_main:
                 epoch_pbar.set_postfix(
