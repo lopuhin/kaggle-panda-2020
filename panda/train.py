@@ -22,7 +22,8 @@ import tqdm
 from .dataset import PandaDataset, one_from_torch, N_CLASSES
 from . import models
 from .utils import (
-    OptimizedRounder, load_weights, train_valid_df, train_df, default_bins)
+    OptimizedRounder, load_weights, train_valid_df, train_df, default_bins,
+    ModelEMA)
 
 
 def main():
@@ -60,6 +61,7 @@ def main():
     arg('--wd', type=float, default=0)
     arg('--oversample-karolinska', type=int, default=1)
     arg('--no-validation', type=int, default=0, help='use whole train set')
+    arg('--ema-decay', type=float, default=0)
     args = parser.parse_args()
 
     if args.ddp:
@@ -164,6 +166,7 @@ def run_main(device_id, args):
         raise ValueError(f'unexpected schedule {args.schedule}')
 
     if args.ddp:
+        assert not args.ema_decay
         print(f'device {device} initializing process group')
         os.environ['MASTER_PORT'] = '40390'
         os.environ['MASTER_ADDR'] = '127.0.0.1'
@@ -178,11 +181,16 @@ def run_main(device_id, args):
     else:
         model.to(device)
 
+    if args.ema_decay:
+        model_ema = ModelEMA(model, decay=args.ema_decay)
+    else:
+        model_ema = None
+
     if args.save_patches:
         for p in run_root.glob('patch-*.jpeg'):
             p.unlink()
 
-    def forward(xs, ys):
+    def forward(xs, ys, model):
         save_patches(xs)
         xs = xs.to(device, non_blocking=True)
         ys = ys.to(device, non_blocking=True)
@@ -204,12 +212,14 @@ def run_main(device_id, args):
         for i, (ids, xs, ys) in enumerate(pbar):
             step += len(ids) * n_devices
             with amp.autocast(enabled=amp_enabled):
-                _, loss = forward(xs, ys)
+                _, loss = forward(xs, ys, model)
             scaler.scale(loss).backward()
             if (i + 1) % args.grad_acc == 0:
                 scaler.step(optimizer)
                 scaler.update()
                 optimizer.zero_grad()
+                if model_ema is not None:
+                    model_ema.update(model)
             running_losses.append(float(loss))
             if lr_scheduler_per_step:
                 try:
@@ -246,8 +256,9 @@ def run_main(device_id, args):
                         mask.save(run_root / f'patch-{i}-{j}-mask.png')
 
     @torch.no_grad()
-    def validate():
+    def validate(use_ema=False):
         model.eval()
+        validated_model = model_ema.ema if use_ema else model
 
         prediction_results = defaultdict(list)
         n_tta = args.tta or 1
@@ -256,7 +267,7 @@ def run_main(device_id, args):
         for ids, xs, ys in tqdm.tqdm(
                 valid_loader, desc='validation', dynamic_ncols=True):
             with amp.autocast(enabled=amp_enabled):
-                output, loss = forward(xs, ys)
+                output, loss = forward(xs, ys, model=validated_model)
             prediction_results['image_ids'].extend(ids)
             prediction_results['targets'].extend(ys.cpu().numpy())
             prediction_results['losses'].append(float(loss))
@@ -357,6 +368,11 @@ def run_main(device_id, args):
                         'params': params,
                     }
                     torch.save(state, model_path)
+                if model_ema is not None:
+                    ema_valid_metrics, _, _ = validate(use_ema=True)
+                    json_log_plots.write_event(
+                        run_root, step,
+                        **{f'ema_{k}': v for k, v in ema_valid_metrics.items()})
         elif is_main:
             state = {
                 'weights': model.state_dict(),

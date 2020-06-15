@@ -1,3 +1,4 @@
+from copy import deepcopy
 from functools import partial
 
 import cv2
@@ -5,6 +6,7 @@ import numpy as np
 import pandas as pd
 import scipy as sp
 from sklearn import metrics
+import torch
 
 
 def crop_white(image: np.ndarray, value: int = 255) -> np.ndarray:
@@ -104,3 +106,31 @@ def train_valid_df(fold: int, n_folds: int):
     df_train = df[df['image_id'].isin(train_images)]
     df_valid = df[df['image_id'].isin(valid_images)]
     return df_train, df_valid
+
+
+class ModelEMA:
+    """ Model Exponential Moving Average
+    Keep a moving average of everything in the model state_dict (parameters and buffers).
+    This is intended to allow functionality like
+    https://www.tensorflow.org/api_docs/python/tf/train/ExponentialMovingAverage
+    A smoothed version of the weights is necessary for some training schemes to perform well.
+    E.g. Google's hyper-params for training MNASNet, MobileNet-V3, EfficientNet, etc that use
+    RMSprop with a short 2.4-3 epoch decay period and slow LR decay rate of .96-.99 requires EMA
+    smoothing of weights to match results. Pay attention to the decay constant you are using
+    relative to your update count per epoch.
+    Based on https://github.com/rwightman/pytorch-image-models/blob/13cf68850bd993d8b763941a965df7317cd63af2/timm/utils.py#L234
+    """
+    def __init__(self, model, decay=0.9999):
+        # make a copy of the model for accumulating moving average of weights
+        self.ema = deepcopy(model)
+        self.ema.eval()
+        self.decay = decay
+        for p in self.ema.parameters():
+            p.requires_grad_(False)
+
+    @torch.no_grad()
+    def update(self, model):
+        msd = model.state_dict()
+        for k, ema_v in self.ema.state_dict().items():
+            model_v = msd[k].detach()
+            ema_v.copy_(ema_v * self.decay + (1. - self.decay) * model_v)
