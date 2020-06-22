@@ -24,6 +24,7 @@ def main():
     arg('--tta', type=int)
     arg('--output')
     arg('--fold', type=int)
+    arg('--train', type=int)
     arg('--n-folds', type=int, default=5)
     args = parser.parse_args()
 
@@ -31,7 +32,8 @@ def main():
     is_train = args.fold is not None
     if is_train:
         image_root = root / 'train_images'
-        _, df = train_valid_df(args.fold, args.n_folds)
+        dfs = train_valid_df(args.fold, args.n_folds)
+        df = dfs[0 if args.train else 1]
     else:
         df = pd.read_csv(root / 'sample_submission.csv')
         image_root = root / 'test_images'
@@ -57,6 +59,7 @@ def main():
 
     predictions = [[] for _ in models]
     embeddings = [[] for _ in models]
+    embeddings_ys = [[] for _ in models]
     image_ids = []
 
     n_tta = args.tta or 1
@@ -84,15 +87,17 @@ def main():
             ys = ys.to(device)
             image_ids.extend(ids)
             for i, m in enumerate(models):
-                ys, embs = m(xs, return_embeddings=True)
+                ys, embs, embs_ys = m(xs, return_embeddings=True)
                 predictions[i].extend(ys.cpu().numpy())
                 embeddings[i].extend(embs.cpu().numpy())
+                embeddings_ys[i].extend(embs_ys.cpu().numpy())
 
     image_ids = image_ids[::n_tta]
     predictions = np.mean([
         np.array(x).reshape((-1, n_tta)).mean(1) for x in predictions], 0)
     assert n_tta == 1  # TODO
     embeddings = np.mean(embeddings, 0)
+    embeddings_ys = np.mean(embeddings_ys, 0)
 
     bins = np.mean([s['bins'] for s in states], 0)
     binned_predictions = np.digitize(predictions, bins)
@@ -105,6 +110,7 @@ def main():
             'image_ids': image_ids,
             'predictions': predictions,
             'embeddings': embeddings,
+            'embeddings_ys': embeddings_ys,
             'bins': bins,
             'params': [s['params'] for s in states],
             'metrics': [s['metrics'] for s in states],

@@ -52,12 +52,15 @@ class Model(nn.Module):
             emb = x.reshape((batch_size * n_patches, n_features, -1))
             emb = self.avgpool(emb)
             emb = emb.reshape((batch_size, n_patches, n_features))
+            emb_pred = (
+                self.head(emb.reshape((batch_size * n_patches, n_features)))
+                .reshape((batch_size, n_patches)))
         x = x.transpose(1, 2).reshape((batch_size, n_features, -1))
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
         x = self.head(x)
         x = x.squeeze(1)
-        return (x, emb) if return_embeddings else x
+        return (x, emb, emb_pred) if return_embeddings else x
 
     @torch.no_grad()
     def get_white_mask(self, x):
