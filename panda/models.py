@@ -38,7 +38,7 @@ class Model(nn.Module):
     def get_features_dim(self):
         return self.base.fc.in_features
     
-    def forward(self, x):
+    def forward(self, x, return_embeddings=False):
         batch_size, n_patches, *patch_shape = x.shape
         x = x.reshape((batch_size * n_patches, *patch_shape))
         if self.white_mask:
@@ -48,11 +48,16 @@ class Model(nn.Module):
             x = x * white_mask
         n_features = x.shape[1]
         x = x.reshape((batch_size, n_patches, n_features, -1))
+        if return_embeddings:
+            emb = x.reshape((batch_size * n_patches, n_features, -1))
+            emb = self.avgpool(emb)
+            emb = emb.reshape((batch_size, n_patches, n_features))
         x = x.transpose(1, 2).reshape((batch_size, n_features, -1))
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
         x = self.head(x)
-        return x.squeeze(1)
+        x = x.squeeze(1)
+        return (x, emb) if return_embeddings else x
 
     @torch.no_grad()
     def get_white_mask(self, x):

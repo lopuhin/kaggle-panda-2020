@@ -1,6 +1,6 @@
 import argparse
-import json
 from pathlib import Path
+import pickle
 
 import numpy as np
 import pandas as pd
@@ -56,6 +56,7 @@ def main():
         m.eval()
 
     predictions = [[] for _ in models]
+    embeddings = [[] for _ in models]
     image_ids = []
 
     n_tta = args.tta or 1
@@ -83,11 +84,15 @@ def main():
             ys = ys.to(device)
             image_ids.extend(ids)
             for i, m in enumerate(models):
-                predictions[i].extend(m(xs).cpu().numpy())
+                ys, embs = m(xs, return_embeddings=True)
+                predictions[i].extend(ys.cpu().numpy())
+                embeddings[i].extend(embs.cpu().numpy())
 
     image_ids = image_ids[::n_tta]
     predictions = np.mean([
         np.array(x).reshape((-1, n_tta)).mean(1) for x in predictions], 0)
+    assert n_tta == 1  # TODO
+    embeddings = np.mean(embeddings, 0)
 
     bins = np.mean([s['bins'] for s in states], 0)
     binned_predictions = np.digitize(predictions, bins)
@@ -98,13 +103,14 @@ def main():
     if args.output:
         output = {
             'image_ids': image_ids,
-            'predictions': list(map(float, predictions)),
-            'bins': list(map(float, bins)),
+            'predictions': predictions,
+            'embeddings': embeddings,
+            'bins': bins,
             'params': [s['params'] for s in states],
             'metrics': [s['metrics'] for s in states],
         }
-        Path(args.output).write_text(
-            json.dumps(output, indent=4, sort_keys=True))
+        Path(args.output).write_bytes(
+            pickle.dumps(output, protocol=pickle.HIGHEST_PROTOCOL))
 
 
 if __name__ == '__main__':
